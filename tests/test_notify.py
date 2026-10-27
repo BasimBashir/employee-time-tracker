@@ -170,6 +170,49 @@ def test_notify_qr_endpoint(tmp_path, monkeypatch):
     assert c.get("/notify/qr").status_code == 404
 
 
+# ----------------------------------------------------- off-window alerts ----
+def test_window_violation_alerts_owner_only(monkeypatch):
+    captured = []
+    monkeypatch.setattr(notifier, "send",
+                        lambda cfg, phone, text: captured.append((phone, text)))
+    owner = SimpleNamespace(notify_enabled=True, notify_bridge_url=DEAD_URL,
+                            notify_bridge_key="", notify_owner_phone="+923001234567")
+    notifier.window_violation(owner, "Ali", datetime(2026, 10, 27, 9, 15),
+                              "12:30-14:00")
+    phone, text = captured[0]
+    assert phone == "+923001234567"
+    assert "Ali" in text and "09:15" in text and "12:30-14:00" in text
+    # no owner number configured -> nothing is sent anywhere
+    notifier.window_violation(CFG, "Ali", datetime(2026, 10, 27, 9, 15), "12:30-14:00")
+    assert len(captured) == 1
+
+
+def test_simulator_flags_window_violation(tmp_path, monkeypatch):
+    conn = make_conn(tmp_path)
+    add_camera(conn, "gate")
+    emp = add_employee(conn, "Bilal")
+    update_employee(conn, emp, out_windows="12:30-14:00")
+    captured = []
+
+    def fake_send(cfg, phone, text):
+        if phone:  # same guard as the real send: no number, no dispatch
+            captured.append((phone, text))
+
+    monkeypatch.setattr(notifier, "send", fake_send)
+    owner = SimpleNamespace(notify_enabled=True, notify_bridge_url=DEAD_URL,
+                            notify_bridge_key="", notify_owner_phone="+923001234567")
+    # 09:00 is outside the window -> the owner hears about it (the employee
+    # has no number, so the only send is the alert)
+    simulate(conn, 1, [(emp, datetime(2026, 10, 27, 9, 0),
+                        datetime(2026, 10, 27, 9, 10))], pause_seconds=0, cfg=owner)
+    assert len(captured) == 1 and "outside their allowed window" in captured[0][1]
+    # 13:00 sits inside the window -> no alert
+    captured.clear()
+    simulate(conn, 1, [(emp, datetime(2026, 10, 27, 13, 0), None)],
+             pause_seconds=0, cfg=owner)
+    assert captured == []
+
+
 # ------------------------------------------------------------ simulator -----
 def test_simulator_fires_notifications(tmp_path, monkeypatch):
     conn = make_conn(tmp_path)

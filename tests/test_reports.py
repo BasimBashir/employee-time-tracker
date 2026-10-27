@@ -128,9 +128,10 @@ def test_api_patch_employee_and_session(tmp_path):
     r = c.request("PATCH", f"/employees/{emp}",
                   content=json.dumps({"role": "delivery", "allowed_out_minutes": 45}),
                   headers={"Content-Type": "application/json"})
-    assert r.status_code == 200 and r.json() == {
-        "id": emp, "name": "Ayesha", "role": "delivery", "allowed_out_minutes": 45,
-        "phone": None}
+    body = r.json()
+    assert (r.status_code == 200 and body["employee_id"] == emp
+            and body["name"] == "Ayesha" and body["role"] == "delivery"
+            and body["allowed_out_minutes"] == 45 and body["phone"] is None)
 
     # Clearing the override inherits the config default.
     r = c.request("PATCH", f"/employees/{emp}",

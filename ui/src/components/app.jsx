@@ -5,14 +5,27 @@ import CurrentlyOut from './CurrentlyOut.jsx';
 import LiveFeed from './LiveFeed.jsx';
 import SessionsTable from './SessionsTable.jsx';
 import ReportsPanel from './ReportsPanel.jsx';
+import EmployeesPanel from './EmployeesPanel.jsx';
+import NamazPanel from './NamazPanel.jsx';
 import { api } from '../api.js';
 
+// Three pages, switched client-side: the live Dashboard, the Employees
+// profiles, and Settings (the namaz timetable). The chosen page survives
+// reloads for the session.
 export function App() {
+  const [page, setPage] = React.useState(
+    () => sessionStorage.getItem('page') || 'dashboard');
   const [status, setStatus] = React.useState(null);
   const [sessions, setSessions] = React.useState([]);
   const [events, setEvents] = React.useState([]);
   const [report, setReport] = React.useState(null);
+  const [employees, setEmployees] = React.useState(null);
   const [date, setDate] = React.useState(() => api.today());
+
+  function navigate(next) {
+    setPage(next);
+    sessionStorage.setItem('page', next);
+  }
 
   React.useEffect(() => {
     api.health().then(() => setStatus('up')).catch(() => setStatus('down'));
@@ -31,6 +44,14 @@ export function App() {
   React.useEffect(() => {
     loadReports();
   }, [loadReports]);
+
+  const loadEmployees = React.useCallback(() => {
+    api.employees(api.today()).then(setEmployees).catch(() => {});
+  }, []);
+
+  React.useEffect(() => {
+    loadEmployees();
+  }, [loadEmployees]);
 
   React.useEffect(() => {
     let since = new Date(0).toISOString();
@@ -59,19 +80,28 @@ export function App() {
   function reload() {
     api.sessions(date).then(setSessions).catch(() => {});
     loadReports();
+    loadEmployees();
   }
 
   return (
     <div className="flex min-h-full flex-col">
-      <Header status={status} />
+      <Header status={status} page={page} onNavigate={navigate} />
       <main className="flex flex-1 flex-col gap-5 p-5">
-        <SummaryStrip sessions={sessions} events={events} />
-        <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
-          <LiveFeed events={events} />
-          <CurrentlyOut sessions={sessions} />
-        </div>
-        <SessionsTable sessions={sessions} onChanged={reload} />
-        <ReportsPanel report={report} date={date} onChanged={reload} />
+        {page === 'dashboard' && (
+          <>
+            <SummaryStrip sessions={sessions} events={events} />
+            <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
+              <LiveFeed events={events} />
+              <CurrentlyOut sessions={sessions} />
+            </div>
+            <SessionsTable sessions={sessions} onChanged={reload} />
+            <ReportsPanel report={report} date={date} onChanged={reload} />
+          </>
+        )}
+        {page === 'employees' && (
+          <EmployeesPanel employees={employees} onChanged={reload} />
+        )}
+        {page === 'settings' && <NamazPanel date={date} />}
       </main>
     </div>
   );

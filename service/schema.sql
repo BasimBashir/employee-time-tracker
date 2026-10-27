@@ -82,6 +82,18 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT
 );
 
+-- Editable namaz timetable: pins one prayer on one date to an absolute time
+-- (minutes-of-day) for jummah moves, Ramadan shifts and one-offs. No row =
+-- resolve from the fixed Zuhr clock time / the computed sun time plus jamaat
+-- offsets (settings table keys namaz_*).
+CREATE TABLE IF NOT EXISTS namaz_overrides (
+  date TEXT NOT NULL,
+  prayer TEXT NOT NULL CHECK (prayer IN ('fajr','zuhr','asr','maghrib','isha')),
+  minutes INTEGER NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (date, prayer)
+);
+
 CREATE TABLE IF NOT EXISTS audit_log (
   id INTEGER PRIMARY KEY,
   actor TEXT,

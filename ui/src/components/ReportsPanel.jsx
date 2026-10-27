@@ -1,6 +1,7 @@
 import React from 'react';
 import { api } from '../api.js';
 import { formatDuration } from '../lib.js';
+import { AllowanceInput, PhoneInput, RoleControl } from './controls.jsx';
 
 // Short human label for badges and annotations ("12m", "1h 5m"). The main
 // figures use formatDuration (H:MM:SS); these stay scannable at small sizes.
@@ -84,85 +85,6 @@ function WeekPattern({ series, dates }) {
         Last 7 days (* today) — hover a column for the split
       </div>
     </div>
-  );
-}
-
-function RoleControl({ role, onChange }) {
-  const btn = (r, label) => (
-    <button
-      key={r}
-      type="button"
-      onClick={() => role !== r && onChange(r)}
-      className={`px-2 py-1 text-label transition-colors ${
-        role === r ? 'bg-ink-600 text-paper' : 'text-paper-faint hover:bg-ink-800 hover:text-paper'
-      }`}
-    >
-      {label}
-    </button>
-  );
-  return (
-    <div className="flex shrink-0 overflow-hidden rounded-md border border-ink-500/60">
-      {btn('staff', 'Staff')}
-      {btn('delivery', 'Delivery')}
-    </div>
-  );
-}
-
-// Empty means "inherit the config default" (placeholder shows the current
-// effective value). Commits on blur or Enter.
-function AllowanceInput({ allowedMinutes, onCommit }) {
-  const [value, setValue] = React.useState(allowedMinutes == null ? '' : String(allowedMinutes));
-  const commit = () => {
-    const t = value.trim();
-    if (t === '') {
-      if (allowedMinutes == null) return;
-      onCommit(null);
-      return;
-    }
-    const n = Math.round(Number(t));
-    if (!Number.isFinite(n) || n < 0 || n === allowedMinutes) return;
-    onCommit(n);
-  };
-  return (
-    <label className="flex items-center gap-1.5 text-xs text-paper-faint">
-      Allowance
-      <input
-        type="number"
-        min="0"
-        value={value}
-        placeholder={String(allowedMinutes ?? '')}
-        onChange={(e) => setValue(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => e.key === 'Enter' && e.target.blur()}
-        className="num w-14 rounded-md border border-ink-500/60 bg-ink-800 px-1.5 py-0.5 text-right text-xs text-paper placeholder:text-paper-faint/50 focus:border-paper-faint focus:outline-none"
-      />
-      min/day
-    </label>
-  );
-}
-
-// WhatsApp number for notifications; empty means none. Commits on blur or
-// Enter, same as the allowance input.
-function PhoneInput({ phone, onCommit }) {
-  const [value, setValue] = React.useState(phone ?? '');
-  const commit = () => {
-    const t = value.trim();
-    if (t === (phone ?? '')) return;
-    onCommit(t === '' ? null : t);
-  };
-  return (
-    <label className="flex items-center gap-1.5 text-xs text-paper-faint">
-      WhatsApp
-      <input
-        type="tel"
-        value={value}
-        placeholder="not set"
-        onChange={(e) => setValue(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => e.key === 'Enter' && e.target.blur()}
-        className="num w-28 rounded-md border border-ink-500/60 bg-ink-800 px-1.5 py-0.5 text-xs text-paper placeholder:text-paper-faint/50 focus:border-paper-faint focus:outline-none"
-      />
-    </label>
   );
 }
 

@@ -59,12 +59,34 @@ function WhatsAppChip() {
   );
 }
 
-export function Header({ status }) {
+const PAGES = [
+  { key: 'dashboard', label: 'Dashboard' },
+  { key: 'employees', label: 'Employees' },
+  { key: 'settings', label: 'Settings' },
+];
+
+export function Header({ status, page, onNavigate }) {
   const up = status === 'up';
   return (
     <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-ink-500/60 bg-ink-800 px-5 py-3">
       <h1 className="text-base font-semibold tracking-tight">Employee tracker</h1>
-      <span className="font-mono text-sm text-paper-faint">{LIVE_SLUG}</span>
+      <nav className="flex overflow-hidden rounded-md border border-ink-500/60">
+        {PAGES.map(({ key, label }) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => onNavigate(key)}
+            className={`px-3 py-1 text-sm transition-colors ${
+              page === key
+                ? 'bg-ink-600 text-paper'
+                : 'text-paper-faint hover:bg-ink-800 hover:text-paper'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
+      <span className="hidden font-mono text-sm text-paper-faint lg:inline">{LIVE_SLUG}</span>
       <span className="ml-auto flex items-center gap-4">
         <WhatsAppChip />
         <span className="flex items-center gap-2 text-sm text-paper-soft">

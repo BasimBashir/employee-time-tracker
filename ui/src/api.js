@@ -33,6 +33,28 @@ async function patch(path, body) {
   return r.json();
 }
 
+async function post(path, body) {
+  const r = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+  return r.json();
+}
+
+// Uploads stream the raw file with its own content type — the service stores
+// media as plain files, so there is no JSON envelope.
+async function upload(url, file) {
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': file.type || 'application/octet-stream' },
+    body: file,
+  });
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+  return r.json();
+}
+
 export const api = {
   health: () => get('/health'),
   rss: () => get('/health/rss'),
@@ -53,6 +75,30 @@ export const api = {
 
   // role: 'staff' | 'delivery'; allowed_out_minutes: number or null (inherit).
   updateEmployee: (id, body) => patch(`/employees/${id}`, body),
+
+  // Roster with full profiles (role, phone, out windows, namaz plan,
+  // avatar/media flags). With `date`, each profile also carries
+  // effective_windows — their windows plus that day's namaz slots.
+  employees: (date) => get(`/employees${date ? `?date=${encodeURIComponent(date)}` : ''}`),
+  addEmployee: (body) => post('/employees', body),
+  // Soft delete: the reason lands in the audit log; history stays resolvable.
+  removeEmployee: (id, reason) => del(`/employees/${id}`, { actor: 'owner', reason }),
+
+  // Editable namaz timetable: a month (or whole year) of effective prayer
+  // start times plus the global settings. `time` null clears an override.
+  namaz: (year, month) => get(`/namaz?year=${year}${month ? `&month=${month}` : ''}`),
+  patchNamaz: (date, prayer, time) => patch('/namaz', { date, prayer, time }),
+  // offsets: {prayer: minutes}; zuhr/jummah: 'HH:MM' or null (follow the sun).
+  patchNamazSettings: (body) => patch('/namaz/settings', body),
+
+  // Profile photo (avatar_<id>.jpg) and per-employee training media, both
+  // plain files under the service's media folder — no database rows.
+  avatarUrl: (id) => `${API_BASE}/employees/${id}/avatar`,
+  uploadAvatar: (id, file) => upload(`${API_BASE}/employees/${id}/avatar`, file),
+  mediaList: (id) => get(`/employees/${id}/media`),
+  mediaUrl: (id, name) => `${API_BASE}/employees/${id}/media/${encodeURIComponent(name)}`,
+  uploadMedia: (id, file) => upload(`${API_BASE}/employees/${id}/media`, file),
+  deleteMedia: (id, name) => del(`${API_BASE}/employees/${id}/media/${encodeURIComponent(name)}`),
 
   dailyReport: (date) => get(`/report/daily?date=${date}`),
   weeklyReport: (end, days = 7) => get(`/report/weekly?end=${end}&days=${days}`),

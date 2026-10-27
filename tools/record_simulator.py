@@ -14,7 +14,8 @@ def simulate(conn: sqlite3.Connection, camera_id: int, script,
              pause_seconds: float = 2.0, cfg=None) -> None:
     """script: iterable of (employee_id, out_at, in_at). in_at may be None.
     cfg, when given, also fires WhatsApp notifications for each trip."""
-    from service.db import insert_event, open_session, close_session
+    from service.db import (insert_event, open_session, close_session,
+                            outside_window, windows_text)
     from service import notifier
     for employee_id, out_at, in_at in script:
         out_ev = insert_event(conn, employee_id, camera_id, "OUT", out_at, None, 0.9, 0, 0)
@@ -24,6 +25,11 @@ def simulate(conn: sqlite3.Connection, camera_id: int, script,
         sess = conn.execute("SELECT purpose FROM sessions WHERE id=?", (sid,)).fetchone()
         if cfg is not None and emp is not None and sess is not None:
             notifier.trip_opened(cfg, emp["name"], emp["phone"], out_at, sess["purpose"])
+            if outside_window(conn, employee_id, out_at):
+                stored = conn.execute("SELECT out_windows FROM employees WHERE id=?",
+                                      (employee_id,)).fetchone()
+                notifier.window_violation(cfg, emp["name"], out_at,
+                                          windows_text(stored["out_windows"]))
         if in_at is not None:
             in_ev = insert_event(conn, employee_id, camera_id, "IN", in_at, None, 0.85, 0, 0)
             close_session(conn, sid, in_ev, in_at)

@@ -36,6 +36,14 @@ export function SessionRow({ session, onDelete, onTogglePurpose }) {
       </td>
       <td className="num px-2 text-paper-soft">
         {session.out_at ? new Date(session.out_at).toLocaleTimeString('en-GB') : '—'}
+        {session.outside_window ? (
+          <span
+            className="ml-2 rounded-md border border-rose/40 bg-rose/10 px-1.5 py-0.5 text-[10px] font-medium tracking-normal text-rose"
+            title="Started outside this employee's allowed out-time windows"
+          >
+            off-window
+          </span>
+        ) : null}
       </td>
       <td className="num px-2 text-paper-soft">
         {session.in_at ? new Date(session.in_at).toLocaleTimeString('en-GB') : '—'}

@@ -3,8 +3,10 @@ writes DDL or opens the database directly."""
 import json
 import re
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+
+from . import namaz as namazmod
 
 SCHEMA = (Path(__file__).parent / "schema.sql").read_text()
 
@@ -30,6 +32,11 @@ def migrate(conn: sqlite3.Connection) -> None:
         "role": "TEXT NOT NULL DEFAULT 'staff'",
         "allowed_out_minutes": "INTEGER",
         "phone": "TEXT",
+        "avatar_path": "TEXT",
+        "out_windows": "TEXT",
+        "namaz_prayers": "TEXT",
+        "namaz_offset_min": "INTEGER",
+        "namaz_duration_min": "INTEGER",
     })
     _add_columns(conn, "sessions", {"purpose": "TEXT NOT NULL DEFAULT 'break'"})
     conn.commit()
@@ -63,6 +70,242 @@ def add_camera(conn, name: str, rtsp_url=None, decode_element=None, provider=Non
         " VALUES (?,?,?,?,1)", (name, rtsp_url, decode_element, provider))
     conn.commit()
     return cur.lastrowid
+
+
+# ------------------------------------------------------- allowed windows ----
+# A profile may carry allowed out-time windows ("12:30-14:00, 16:00-16:30"):
+# trips starting outside every window are flagged and alerted on. Stored as a
+# canonical JSON list of [start, end] "HH:MM" pairs; empty/NULL = unrestricted.
+_WINDOW_RE = re.compile(r"^(\d{1,2}):(\d{1,2})\s*-\s*(\d{1,2}):(\d{1,2})$")
+
+
+def parse_out_windows(text) -> str | None:
+    """Validate '12:30-14:00, 16:00-16:30' into canonical JSON (None = unset).
+    Raises ValueError on anything malformed."""
+    if text is None:
+        return None
+    text = str(text).strip()
+    if not text:
+        return None
+    spans = []
+    for part in text.split(","):
+        m = _WINDOW_RE.match(part.strip().replace("–", "-"))
+        if not m:
+            raise ValueError(f"not a time window: {part.strip()!r} (use HH:MM-HH:MM)")
+        h1, m1, h2, m2 = (int(g) for g in m.groups())
+        if h1 > 23 or m1 > 59 or h2 > 23 or m2 > 59:
+            raise ValueError(f"not a clock time: {part.strip()!r}")
+        if h2 * 60 + m2 <= h1 * 60 + m1:
+            raise ValueError(f"window must end after it starts: {part.strip()!r}")
+        spans.append((h1 * 60 + m1, h2 * 60 + m2))
+    spans.sort()
+    return json.dumps([[f"{s // 60:02d}:{s % 60:02d}", f"{e // 60:02d}:{e % 60:02d}"]
+                       for s, e in spans])
+
+
+def windows_text(js) -> str | None:
+    """Stored JSON back to the friendly '12:30-14:00, 16:00-16:30' form."""
+    if not js:
+        return None
+    return ", ".join(f"{s}-{e}" for s, e in json.loads(js))
+
+
+def windows_spans(js) -> list[tuple[int, int]] | None:
+    """Stored JSON as minute-of-day spans, or None when unrestricted."""
+    if not js:
+        return None
+    return [(int(s[:2]) * 60 + int(s[3:]), int(e[:2]) * 60 + int(e[3:]))
+            for s, e in json.loads(js)]
+
+
+def violates(spans, out_at: datetime) -> bool:
+    """True when windows exist and out_at starts outside every one of them."""
+    if not spans:
+        return False
+    minutes = out_at.hour * 60 + out_at.minute
+    return all(not (s <= minutes < e) for s, e in spans)
+
+
+def outside_window(conn, employee_id, out_at: datetime) -> bool:
+    row = conn.execute(
+        """SELECT out_windows, namaz_prayers, namaz_offset_min, namaz_duration_min
+             FROM employees WHERE id=?""", (employee_id,)).fetchone()
+    if row is None:
+        return False
+    spans = effective_spans(conn, row["out_windows"], out_at.date().isoformat(),
+                            row["namaz_prayers"], row["namaz_offset_min"],
+                            row["namaz_duration_min"])
+    return violates(spans, out_at)
+
+
+# ----------------------------------------------------------- namaz windows ----
+# Employees go out for namaz several times a day, so their allowed out-time
+# comes from a per-employee prayer plan on top of any static windows. Zuhr in
+# Faisalabad is a fixed 13:30 jamaat year-round (editable); Fajr, Asr, Maghrib
+# and Isha follow the sun via service/namaz.py with editable jamaat offsets,
+# and any date can be pinned with an override. Employees pick which prayers
+# they go out for and get a stagger offset so everyone doesn't leave at once.
+_NAMAZ_DEFAULT_JUMMAH_MIN = 13 * 60 + 30
+
+
+def parse_namaz_prayers(value) -> str | None:
+    """Which prayers this employee goes out for: 'zuhr, asr' (or a list) into
+    canonical comma form; None/empty = no namaz windows at all."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        parts = [p.strip().lower() for p in value.split(",")]
+    else:
+        parts = [str(p).strip().lower() for p in value]
+    parts = [p for p in parts if p]
+    if not parts:
+        return None
+    unknown = [p for p in parts if p not in namazmod.PRAYERS]
+    if unknown:
+        raise ValueError(f"unknown prayer(s): {', '.join(unknown)}")
+    return ",".join(p for p in namazmod.PRAYERS if p in set(parts))
+
+
+def parse_minute_field(value, lo: int, hi: int, what: str) -> int | None:
+    """An int in [lo, hi], or None (= clear / inherit). Raises ValueError."""
+    if value is None or value == "":
+        return None
+    try:
+        v = int(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{what} must be minutes between {lo} and {hi}")
+    if not lo <= v <= hi:
+        raise ValueError(f"{what} must be between {lo} and {hi}")
+    return v
+
+
+def get_namaz_settings(conn) -> dict:
+    """The global timetable settings (settings-table keys namaz_*): per-prayer
+    jamaat offsets, the fixed Zuhr clock time, the Friday jummah time and the
+    default slot duration."""
+    vals = {r["key"]: r["value"] for r in conn.execute("SELECT key, value FROM settings")
+            if r["key"].startswith("namaz_")}
+
+    def setting(key: str, default):
+        raw = vals.get(key)
+        if raw is None:
+            return default
+        if raw == "":
+            return None  # explicitly cleared → follow the computed sun time
+        return int(raw)
+
+    return {
+        "offsets": {p: setting(f"namaz_offset_{p}", 0) or 0 for p in namazmod.PRAYERS},
+        "zuhr_fixed_min": setting("namaz_zuhr_fixed_min", 13 * 60 + 30),
+        "jummah_min": setting("namaz_jummah_min", _NAMAZ_DEFAULT_JUMMAH_MIN),
+        "duration_min": setting("namaz_duration_min", 20),
+    }
+
+
+def set_namaz_settings(conn, offsets=None, zuhr_fixed_min=UNSET, jummah_min=UNSET,
+                       duration_min=UNSET) -> None:
+    """Edit the timetable settings. offsets maps prayer → jamaat offset minutes
+    (0-180; None clears back to 0). zuhr_fixed_min / jummah_min are absolute
+    minutes-of-day or None (= follow the computed sun time). Audited."""
+    detail = {}
+
+    def put(key: str, value: str) -> None:
+        conn.execute(
+            "INSERT INTO settings (key,value) VALUES (?,?) ON CONFLICT(key)"
+            " DO UPDATE SET value=excluded.value", (key, value))
+
+    if offsets:
+        for prayer, minutes in offsets.items():
+            if prayer not in namazmod.PRAYERS:
+                raise ValueError(f"unknown prayer {prayer!r}")
+            minutes = parse_minute_field(minutes, 0, 180, "jamaat offset")
+            put(f"namaz_offset_{prayer}", "" if minutes is None else str(minutes))
+            detail[f"offset_{prayer}"] = minutes
+    if zuhr_fixed_min is not UNSET:
+        minutes = parse_minute_field(zuhr_fixed_min, 0, 1439, "zuhr time")
+        put("namaz_zuhr_fixed_min", "" if minutes is None else str(minutes))
+        detail["zuhr_fixed_min"] = minutes
+    if jummah_min is not UNSET:
+        minutes = parse_minute_field(jummah_min, 0, 1439, "jummah time")
+        put("namaz_jummah_min", "" if minutes is None else str(minutes))
+        detail["jummah_min"] = minutes
+    if duration_min is not UNSET:
+        minutes = parse_minute_field(duration_min, 5, 120, "slot duration")
+        put("namaz_duration_min", "" if minutes is None else str(minutes))
+        detail["duration_min"] = minutes
+    if not detail:
+        return
+    audit(conn, "dashboard", "set_namaz_settings", "namaz", detail)
+
+
+def set_namaz_override(conn, date_str: str, prayer: str, minutes, actor="dashboard") -> None:
+    """Pin one prayer on one date to an absolute time (minutes-of-day), or
+    clear the pin by passing None."""
+    if prayer not in namazmod.PRAYERS:
+        raise ValueError(f"unknown prayer {prayer!r}")
+    datetime.fromisoformat(date_str)  # ValueError on a junk date
+    minutes = parse_minute_field(minutes, 0, 1439, "prayer time")
+    if minutes is None:
+        conn.execute("DELETE FROM namaz_overrides WHERE date=? AND prayer=?",
+                     (date_str, prayer))
+    else:
+        conn.execute(
+            "INSERT INTO namaz_overrides (date,prayer,minutes,updated_at)"
+            " VALUES (?,?,?,?) ON CONFLICT(date,prayer) DO UPDATE SET"
+            " minutes=excluded.minutes, updated_at=excluded.updated_at",
+            (date_str, prayer, minutes, _now()))
+    conn.commit()
+    audit(conn, actor, "set_namaz_override", f"{date_str}/{prayer}", {"minutes": minutes})
+
+
+def namaz_start(conn, date_str: str, prayer: str, settings: dict | None = None) -> int:
+    """Effective start (minutes-of-day) of one prayer on one date: a per-date
+    override first, then the Friday jummah time (Zuhr only), then the fixed
+    Zuhr clock time, then the computed sun time plus the jamaat offset."""
+    row = conn.execute("SELECT minutes FROM namaz_overrides WHERE date=? AND prayer=?",
+                       (date_str, prayer)).fetchone()
+    if row is not None:
+        return row["minutes"]
+    st = settings if settings is not None else get_namaz_settings(conn)
+    if prayer == "zuhr":
+        if date.fromisoformat(date_str).weekday() == 4 and st["jummah_min"] is not None:
+            return st["jummah_min"]
+        if st["zuhr_fixed_min"] is not None:
+            return st["zuhr_fixed_min"]
+    return namazmod.day_times(date_str)[prayer] + st["offsets"][prayer]
+
+
+def namaz_spans(conn, date_str: str, prayers, offset_min=None, duration_min=None,
+                settings: dict | None = None) -> list[tuple[int, int]]:
+    """One employee's namaz out-slots for a date: each selected prayer opens a
+    window at its start plus their stagger, running for the slot duration."""
+    if not prayers:
+        return []
+    st = settings if settings is not None else get_namaz_settings(conn)
+    shift = offset_min or 0
+    dur = st["duration_min"] if duration_min is None else duration_min
+    spans = []
+    for p in str(prayers).split(","):
+        start = namaz_start(conn, date_str, p.strip(), st) + shift
+        spans.append((start, min(start + dur, 1439)))
+    return sorted(spans)
+
+
+def effective_spans(conn, out_windows_js, date_str, prayers=None, offset_min=None,
+                    duration_min=None, settings: dict | None = None
+                    ) -> list[tuple[int, int]]:
+    """Static profile windows plus the day's namaz slots, in time order."""
+    spans = list(windows_spans(out_windows_js) or [])
+    spans += namaz_spans(conn, date_str, prayers, offset_min, duration_min, settings)
+    return sorted(spans)
+
+
+def spans_text(spans) -> str | None:
+    """Minute spans in the friendly '13:35-13:55, 16:20-16:40' form."""
+    if not spans:
+        return None
+    return ", ".join(f"{s // 60:02d}:{s % 60:02d}-{e // 60:02d}:{e % 60:02d}"
+                     for s, e in spans)
 
 
 # ---------------------------------------------------------------- events ----
@@ -139,10 +382,14 @@ def set_session_purpose(conn, session_id, purpose: str, actor: str) -> None:
 
 
 def update_employee(conn, employee_id, role=None, allowed_out_minutes=UNSET,
-                    phone=UNSET) -> None:
-    """Set role ('staff' | 'delivery'), the daily allowance in minutes and/or
-    the WhatsApp number. allowed_out_minutes=None clears the override (inherits
-    the config default); phone=None clears the number. Changes are audited."""
+                    phone=UNSET, name=UNSET, employee_code=UNSET,
+                    department=UNSET, out_windows=UNSET, avatar_path=UNSET,
+                    namaz_prayers=UNSET, namaz_offset_min=UNSET,
+                    namaz_duration_min=UNSET) -> None:
+    """Update any profile field. None means "clear" for the optional ones
+    (phone, code, department, out_windows, avatar, namaz plan); blank names
+    are refused; out_windows and the namaz fields are validated (see
+    parse_out_windows / parse_namaz_prayers). Changes are audited."""
     sets, args, detail = [], [], {}
     if role is not None:
         if role not in ("staff", "delivery"):
@@ -162,12 +409,89 @@ def update_employee(conn, employee_id, role=None, allowed_out_minutes=UNSET,
         sets.append("allowed_out_minutes=?")
         args.append(allowed_out_minutes)
         detail["allowed_out_minutes"] = allowed_out_minutes
+    if name is not UNSET:
+        name = str(name or "").strip()
+        if not name:
+            raise ValueError("name cannot be empty")
+        sets.append("name=?")
+        args.append(name)
+        detail["name"] = name
+    for column, value in (("employee_code", employee_code), ("department", department)):
+        if value is not UNSET:
+            value = str(value).strip() if value is not None else None
+            if value == "":
+                value = None
+            sets.append(f"{column}=?")
+            args.append(value)
+            detail[column] = value
+    if out_windows is not UNSET:
+        out_windows = parse_out_windows(out_windows)
+        sets.append("out_windows=?")
+        args.append(out_windows)
+        detail["out_windows"] = out_windows
+    if avatar_path is not UNSET:
+        sets.append("avatar_path=?")
+        args.append(avatar_path)
+    if namaz_prayers is not UNSET:
+        namaz_prayers = parse_namaz_prayers(namaz_prayers)
+        sets.append("namaz_prayers=?")
+        args.append(namaz_prayers)
+        detail["namaz_prayers"] = namaz_prayers
+    if namaz_offset_min is not UNSET:
+        minutes = parse_minute_field(namaz_offset_min, 0, 180, "stagger offset")
+        sets.append("namaz_offset_min=?")
+        args.append(minutes)
+        detail["namaz_offset_min"] = minutes
+    if namaz_duration_min is not UNSET:
+        minutes = parse_minute_field(namaz_duration_min, 5, 120, "slot duration")
+        sets.append("namaz_duration_min=?")
+        args.append(minutes)
+        detail["namaz_duration_min"] = minutes
     if not sets:
         return
     args.append(employee_id)
     conn.execute(f"UPDATE employees SET {', '.join(sets)} WHERE id=?", args)
     conn.commit()
     audit(conn, "dashboard", "update_employee", str(employee_id), detail)
+
+
+def list_employees(conn, windows_date: str | None = None) -> list[dict]:
+    """Every active employee with their full profile, for the Employees page.
+    With windows_date, each profile also carries effective_windows — the
+    static windows plus that day's namaz slots — as friendly text."""
+    rows = conn.execute(
+        """SELECT id, name, employee_code, department, role, allowed_out_minutes,
+                  phone, out_windows, avatar_path, namaz_prayers,
+                  namaz_offset_min, namaz_duration_min
+             FROM employees WHERE deleted_at IS NULL ORDER BY id""").fetchall()
+    settings = get_namaz_settings(conn) if windows_date else None
+    out = []
+    for r in rows:
+        d = {
+            "employee_id": r["id"], "name": r["name"], "employee_code": r["employee_code"],
+            "department": r["department"], "role": r["role"],
+            "allowed_out_minutes": r["allowed_out_minutes"], "phone": r["phone"],
+            "out_windows": windows_text(r["out_windows"]),
+            "has_avatar": bool(r["avatar_path"]),
+            "namaz_prayers": r["namaz_prayers"],
+            "namaz_offset_min": r["namaz_offset_min"],
+            "namaz_duration_min": r["namaz_duration_min"],
+        }
+        if windows_date:
+            d["effective_windows"] = spans_text(effective_spans(
+                conn, r["out_windows"], windows_date, r["namaz_prayers"],
+                r["namaz_offset_min"], r["namaz_duration_min"], settings))
+        out.append(d)
+    return out
+
+
+def deactivate_employee(conn, employee_id, actor, reason) -> None:
+    """Soft delete, like sessions: reports and rosters stop listing them while
+    every event and session that references the row keeps resolving."""
+    conn.execute("UPDATE employees SET deleted_at=? WHERE id=? AND deleted_at IS NULL",
+                 (_now(), employee_id))
+    conn.commit()
+    audit(conn, actor, "deactivate_employee", str(employee_id), {"reason": reason})
 
 
 # --------------------------------------------------------------- reports ----

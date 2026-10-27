@@ -106,3 +106,14 @@ def trip_opened(cfg, name, phone, out_at, purpose: str) -> None:
 def trip_closed(cfg, name, phone, in_at, minutes: float, purpose: str,
                 inferred: bool = False) -> None:
     send(cfg, phone, back_message(name, in_at, minutes, purpose, inferred))
+
+
+def window_violation(cfg, name: str, out_at, windows_text) -> None:
+    """Off-window trip: tell the operator, not the employee — this one is a
+    monitoring alert, so it goes to notify_owner_phone only."""
+    phone = getattr(cfg, "notify_owner_phone", "")
+    if not phone:
+        return
+    send(cfg, phone,
+         f"⚠️ {name} went OUT at {out_at:%H:%M} — outside their allowed "
+         f"window ({windows_text or 'unspecified'}).")

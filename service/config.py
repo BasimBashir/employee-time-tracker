@@ -29,6 +29,9 @@ class Config:
     notify_enabled: bool = False
     notify_bridge_url: str = "http://127.0.0.1:8090"
     notify_bridge_key: str = ""
+    # The operator's own number; off-window alerts go here (employees are
+    # never told on each other). Empty disables the alert.
+    notify_owner_phone: str = ""
     _extra: dict = field(default_factory=dict)
 
     @property
@@ -52,6 +55,18 @@ class Config:
         return self.data_root / "data"
 
     @property
+    def media_dir(self) -> Path:
+        """Employee media: profile avatars (flat) and the recognition-training
+        gallery (one folder per employee)."""
+        return self.data_root / "media"
+
+    def employee_media_dir(self, employee_id: int) -> Path:
+        """Training captures for one employee, plain files on disk on purpose:
+        the recognition pipeline just scans folders; nothing about these files
+        lives in the database."""
+        return self.media_dir / "employees" / str(employee_id)
+
+    @property
     def db_path(self) -> Path:
         return self.data_dir / "tracker.db"
 
@@ -65,7 +80,7 @@ class Config:
 
     def ensure_dirs(self) -> None:
         for d in (self.logs_dir, self.clips_dir, self.models_dir,
-                  self.data_dir, self.config_path.parent):
+                  self.data_dir, self.media_dir, self.config_path.parent):
             d.mkdir(parents=True, exist_ok=True)
 
     def get(self, key, default=None):
@@ -86,6 +101,7 @@ class Config:
             "notify_enabled": self.notify_enabled,
             "notify_bridge_url": self.notify_bridge_url,
             "notify_bridge_key": self.notify_bridge_key,
+            "notify_owner_phone": self.notify_owner_phone,
             **self._extra,
         }
         self.config_path.write_text(json.dumps(payload, indent=2))
