@@ -129,7 +129,8 @@ def test_api_patch_employee_and_session(tmp_path):
                   content=json.dumps({"role": "delivery", "allowed_out_minutes": 45}),
                   headers={"Content-Type": "application/json"})
     assert r.status_code == 200 and r.json() == {
-        "id": emp, "name": "Ayesha", "role": "delivery", "allowed_out_minutes": 45}
+        "id": emp, "name": "Ayesha", "role": "delivery", "allowed_out_minutes": 45,
+        "phone": None}
 
     # Clearing the override inherits the config default.
     r = c.request("PATCH", f"/employees/{emp}",

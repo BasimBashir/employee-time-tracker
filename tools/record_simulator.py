@@ -10,15 +10,30 @@ from datetime import datetime
 from pathlib import Path
 
 
-def simulate(conn: sqlite3.Connection, camera_id: int, script, pause_seconds: float = 2.0) -> None:
-    """script: iterable of (employee_id, out_at, in_at). in_at may be None."""
+def simulate(conn: sqlite3.Connection, camera_id: int, script,
+             pause_seconds: float = 2.0, cfg=None) -> None:
+    """script: iterable of (employee_id, out_at, in_at). in_at may be None.
+    cfg, when given, also fires WhatsApp notifications for each trip."""
     from service.db import insert_event, open_session, close_session
+    from service import notifier
     for employee_id, out_at, in_at in script:
         out_ev = insert_event(conn, employee_id, camera_id, "OUT", out_at, None, 0.9, 0, 0)
         sid = open_session(conn, employee_id, out_ev, out_at, out_at.date().isoformat())
+        emp = conn.execute("SELECT name, phone FROM employees WHERE id=?",
+                           (employee_id,)).fetchone()
+        sess = conn.execute("SELECT purpose FROM sessions WHERE id=?", (sid,)).fetchone()
+        if cfg is not None and emp is not None and sess is not None:
+            notifier.trip_opened(cfg, emp["name"], emp["phone"], out_at, sess["purpose"])
         if in_at is not None:
             in_ev = insert_event(conn, employee_id, camera_id, "IN", in_at, None, 0.85, 0, 0)
             close_session(conn, sid, in_ev, in_at)
+            sess = conn.execute(
+                "SELECT purpose, duration_minutes, inferred_return FROM sessions WHERE id=?",
+                (sid,)).fetchone()
+            if cfg is not None and emp is not None and sess is not None:
+                notifier.trip_closed(cfg, emp["name"], emp["phone"], in_at,
+                                     sess["duration_minutes"], sess["purpose"],
+                                     bool(sess["inferred_return"]))
         if pause_seconds:
             time.sleep(pause_seconds)
 
@@ -66,7 +81,7 @@ def main(argv=None) -> None:
         for emp in sorted(needed - existing):
             add_employee(conn, f"Employee {emp}", f"E{emp}")
 
-    simulate(conn, a.camera, script)
+    simulate(conn, a.camera, script, cfg=cfg)
     conn.close()
     print(f"simulated {len(script)} trip(s) into {cfg.db_path}")
 

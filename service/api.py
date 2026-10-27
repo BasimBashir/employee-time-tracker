@@ -19,6 +19,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from . import db as dbmod
+from . import notifier as notifiermod
 
 # Where the built UI lands (ui/dist/renderer), most-specific first: the
 # installed layout, then the repo checkout for dev. Overridable via ui_dir so
@@ -130,15 +131,23 @@ def create_app(conn, cfg, ui_dir: Path | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail=f"no employee {employee_id}")
         allowance = (body["allowed_out_minutes"]
                      if "allowed_out_minutes" in body else dbmod.UNSET)
+        phone = body["phone"] if "phone" in body else dbmod.UNSET
         try:
             dbmod.update_employee(conn, employee_id, role=body.get("role"),
-                                  allowed_out_minutes=allowance)
+                                  allowed_out_minutes=allowance, phone=phone)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
         row = conn.execute(
-            "SELECT id, name, role, allowed_out_minutes FROM employees WHERE id=?",
+            "SELECT id, name, role, allowed_out_minutes, phone FROM employees WHERE id=?",
             (employee_id,)).fetchone()
         return dict(row)
+
+    @app.get("/notify/status")
+    def notify_status():
+        """WhatsApp bridge link state for the dashboard; never raises."""
+        if cfg is None or not getattr(cfg, "notify_enabled", False):
+            return {"enabled": False}
+        return {"enabled": True, **notifiermod.bridge_status(cfg)}
 
     @app.patch("/sessions/{session_id}")
     def patch_session(session_id: int, body: dict = Body(...)):

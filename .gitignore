@@ -7,3 +7,4 @@ node_modules/
 *.egg-info/
 ui/dist/
 ui/node_modules/
+whatsapp_bridge/session/

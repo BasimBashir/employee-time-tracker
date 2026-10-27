@@ -141,6 +141,31 @@ function AllowanceInput({ allowedMinutes, onCommit }) {
   );
 }
 
+// WhatsApp number for notifications; empty means none. Commits on blur or
+// Enter, same as the allowance input.
+function PhoneInput({ phone, onCommit }) {
+  const [value, setValue] = React.useState(phone ?? '');
+  const commit = () => {
+    const t = value.trim();
+    if (t === (phone ?? '')) return;
+    onCommit(t === '' ? null : t);
+  };
+  return (
+    <label className="flex items-center gap-1.5 text-xs text-paper-faint">
+      WhatsApp
+      <input
+        type="tel"
+        value={value}
+        placeholder="not set"
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => e.key === 'Enter' && e.target.blur()}
+        className="num w-28 rounded-md border border-ink-500/60 bg-ink-800 px-1.5 py-0.5 text-xs text-paper placeholder:text-paper-faint/50 focus:border-paper-faint focus:outline-none"
+      />
+    </label>
+  );
+}
+
 function EmployeeReportCard({ emp, week, onChanged }) {
   const left = Math.max(0, emp.allowed_minutes - emp.break_minutes);
   const over = emp.extra_minutes > 0;
@@ -160,6 +185,15 @@ function EmployeeReportCard({ emp, week, onChanged }) {
       onChanged?.();
     } catch (err) {
       window.alert(`Could not update the allowance: ${err.message}`);
+    }
+  }
+
+  async function setPhone(v) {
+    try {
+      await api.updateEmployee(emp.employee_id, { phone: v });
+      onChanged?.();
+    } catch (err) {
+      window.alert(`Could not update the WhatsApp number: ${err.message}`);
     }
   }
 
@@ -192,7 +226,10 @@ function EmployeeReportCard({ emp, week, onChanged }) {
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <AllowanceInput allowedMinutes={emp.allowed_out_minutes} onCommit={setAllowance} />
+        <div className="flex flex-wrap items-center gap-4">
+          <AllowanceInput allowedMinutes={emp.allowed_out_minutes} onCommit={setAllowance} />
+          <PhoneInput phone={emp.phone} onCommit={setPhone} />
+        </div>
         {over ? (
           <span className="flex shrink-0 items-center gap-1 rounded-md border border-rose/40 bg-rose/10 px-2 py-0.5 text-xs font-medium text-rose">
             <svg width="9" height="8" viewBox="0 0 9 8" fill="currentColor" aria-hidden="true">

@@ -24,6 +24,11 @@ class Config:
     # Daily out-of-floor budget per employee when they have no override of
     # their own. Delivery trips never count against it.
     default_allowed_out_minutes: int = 60
+    # WhatsApp notifications (see service/notifier.py and whatsapp_bridge/).
+    # Off until the operator pairs the bridge with a dedicated SIM.
+    notify_enabled: bool = False
+    notify_bridge_url: str = "http://127.0.0.1:8090"
+    notify_bridge_key: str = ""
     _extra: dict = field(default_factory=dict)
 
     @property
@@ -78,6 +83,9 @@ class Config:
             "confirm_threshold": self.confirm_threshold,
             "uncertain_threshold": self.uncertain_threshold,
             "default_allowed_out_minutes": self.default_allowed_out_minutes,
+            "notify_enabled": self.notify_enabled,
+            "notify_bridge_url": self.notify_bridge_url,
+            "notify_bridge_key": self.notify_bridge_key,
             **self._extra,
         }
         self.config_path.write_text(json.dumps(payload, indent=2))

@@ -1,6 +1,7 @@
 """SQLite access. This module owns the connection and the schema; nothing else
 writes DDL or opens the database directly."""
 import json
+import re
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -28,6 +29,7 @@ def migrate(conn: sqlite3.Connection) -> None:
     _add_columns(conn, "employees", {
         "role": "TEXT NOT NULL DEFAULT 'staff'",
         "allowed_out_minutes": "INTEGER",
+        "phone": "TEXT",
     })
     _add_columns(conn, "sessions", {"purpose": "TEXT NOT NULL DEFAULT 'break'"})
     conn.commit()
@@ -136,10 +138,11 @@ def set_session_purpose(conn, session_id, purpose: str, actor: str) -> None:
     audit(conn, actor, "set_session_purpose", str(session_id), {"purpose": purpose})
 
 
-def update_employee(conn, employee_id, role=None, allowed_out_minutes=UNSET) -> None:
-    """Set role ('staff' | 'delivery') and/or the daily allowance in minutes.
-    allowed_out_minutes=None clears the override (inherits the config default).
-    Both changes are audited."""
+def update_employee(conn, employee_id, role=None, allowed_out_minutes=UNSET,
+                    phone=UNSET) -> None:
+    """Set role ('staff' | 'delivery'), the daily allowance in minutes and/or
+    the WhatsApp number. allowed_out_minutes=None clears the override (inherits
+    the config default); phone=None clears the number. Changes are audited."""
     sets, args, detail = [], [], {}
     if role is not None:
         if role not in ("staff", "delivery"):
@@ -147,6 +150,14 @@ def update_employee(conn, employee_id, role=None, allowed_out_minutes=UNSET) -> 
         sets.append("role=?")
         args.append(role)
         detail["role"] = role
+    if phone is not UNSET:
+        if phone is not None:
+            phone = str(phone).strip()
+            if not re.fullmatch(r"\+?\d[\d\s-]{5,18}", phone):
+                raise ValueError(f"not a phone number: {phone!r}")
+        sets.append("phone=?")
+        args.append(phone)
+        detail["phone"] = phone
     if allowed_out_minutes is not UNSET:
         sets.append("allowed_out_minutes=?")
         args.append(allowed_out_minutes)
@@ -166,7 +177,7 @@ def daily_report(conn, on_date: str, default_allowed_minutes: int = 60) -> list[
     overshoot. Zero-filled for employees with no trips that day."""
     rows = conn.execute(
         """SELECT e.id AS employee_id, e.name, e.employee_code, e.department,
-                  e.role, e.allowed_out_minutes,
+                  e.role, e.allowed_out_minutes, e.phone,
                   COALESCE(SUM(CASE WHEN s.purpose='break'
                                     THEN s.duration_minutes END), 0) AS break_minutes,
                   COALESCE(SUM(CASE WHEN s.purpose='delivery'
@@ -188,7 +199,8 @@ def daily_report(conn, on_date: str, default_allowed_minutes: int = 60) -> list[
         report.append({
             "employee_id": r["employee_id"], "name": r["name"],
             "employee_code": r["employee_code"], "department": r["department"],
-            "role": r["role"], "trips": r["trips"], "open_trips": r["open_trips"],
+            "role": r["role"], "phone": r["phone"],
+            "trips": r["trips"], "open_trips": r["open_trips"],
             "break_minutes": break_minutes, "delivery_minutes": delivery_minutes,
             "total_minutes": round(break_minutes + delivery_minutes, 1),
             "allowed_minutes": allowed,
