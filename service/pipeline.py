@@ -29,6 +29,20 @@ class Pipeline:
         self._frames_analysed = 0
         self._dropped = 0
         self._latencies: list[float] = []
+        self._started_at: float | None = None
+        self._ended_at: float | None = None
+        # Analysis is capped at the source's own frame rate; SyntheticSource and
+        # FileSource replay far faster than live, which would otherwise flood
+        # on_tracks and distort the fps numbers.
+        self._source_fps = float(getattr(source, "fps", 0) or 0) or 25.0
+        self._next_analysis_at = 0.0
+
+    def _due_for_analysis(self) -> bool:
+        now = time.monotonic()
+        if now < self._next_analysis_at:
+            return False
+        self._next_analysis_at = now + 1.0 / self._source_fps
+        return True
 
     def _capture_loop(self):
         while not self._stop.is_set():
@@ -51,6 +65,8 @@ class Pipeline:
             self._frames_seen += 1
             if self._frames_seen % self._interval:
                 continue                  # adaptive skip
+            if not self._due_for_analysis():
+                continue                  # never analyse faster than the source
             self._frames_analysed += 1
             t0 = time.perf_counter()
             dets = self.detector.detect(f.image) if self.detector else []
@@ -77,6 +93,8 @@ class Pipeline:
     def start(self) -> None:
         if self._threads:
             return                        # idempotent
+        self._started_at = time.monotonic()
+        self._ended_at = None
         for name, fn in (("capture", self._capture_loop),
                          ("infer", self._infer_loop),
                          ("autotune", self._autotune_loop)):
@@ -88,12 +106,18 @@ class Pipeline:
         for t in self._threads:
             t.join(timeout=5)
         self._threads.clear()
+        self._ended_at = time.monotonic()
         if self.source:
             self.source.stop()
 
     def stats(self) -> dict:
+        if self._started_at is None:
+            fps = 0.0                     # never started: no rate exists yet
+        else:
+            elapsed = (self._ended_at or time.monotonic()) - self._started_at
+            fps = round(self._frames_analysed / max(elapsed, 1e-6), 1)
         return {
-            "analysis_fps": round(self._frames_analysed / max(self._interval, 1), 2),
+            "analysis_fps": fps,
             "detector_latency_ms": round(self._latencies[-1], 1) if self._latencies else 0.0,
             "dropped_frames": self._dropped,
             "interval": self._interval,
@@ -105,11 +129,14 @@ def make_pipeline(cfg) -> Pipeline:
     pipeline exists but has nothing to capture; with one it runs the real
     path (a missing model file makes the detector a no-op, by design)."""
     from .detector import Detector
-    from .framesource import FileSource
+    from .framesource import FileSource, RtspCvSource
     from .tracker import Tracker
     src = cfg.get("dev_source")
     if not src:
         return Pipeline(None, None, None, cfg=cfg)
-    source = FileSource(Path(src))
+    if str(src).startswith("rtsp://"):
+        source = RtspCvSource(src)
+    else:
+        source = FileSource(Path(src))
     return Pipeline(source, Detector(cfg.models_dir / "yolo11n.onnx"),
                     Tracker(), cfg=cfg)

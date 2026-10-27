@@ -1,8 +1,21 @@
-"""GStreamer RTSP capture with supervised reconnect.
+"""GStreamer RTSP capture with supervised reconnect — parked, see below.
 
-`gi` is imported lazily on purpose: machines without GStreamer (and every test
-run) can import this module and use build_pipeline_string(); only constructing
-an RtspGstSource requires the GStreamer runtime.
+`gi` (PyGObject) is imported lazily on purpose: machines without GStreamer can
+still import this module and use build_pipeline_string(); only constructing an
+RtspGstSource requires the GStreamer runtime.
+
+Parked 2026-10-27: official PyGObject publishes no Windows wheels for
+CPython 3.14 (verified — `pip download` fails; GNOME's own docs route Windows to
+MSYS2, a separate interpreter that lacks this project's other dependencies).
+The GStreamer runtime itself installs fine on Windows 11, so the target machine
+is not the blocker — the Python binding is.
+
+Two routes when this becomes the active task:
+1. Install the GStreamer MSI and drive `gst-launch-1.0.exe` as a subprocess with
+   `fdsink` for raw BGR — works from any Python, no bindings needed.
+2. Move the service to an interpreter that PyGObject supports (MSYS2's).
+
+Until then `service.framesource.RtspCvSource` is the live RTSP bridge here.
 """
 import random
 import threading

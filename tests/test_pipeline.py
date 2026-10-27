@@ -28,3 +28,24 @@ def test_start_is_idempotent():
     pipe.start(); pipe.start()
     assert len(pipe._threads) == 3
     pipe.stop()
+
+def test_make_pipeline_selects_source_by_scheme(tmp_path):
+    from service.config import Config
+    from service.framesource import RtspCvSource
+    from service.pipeline import make_pipeline
+    cfg = Config(data_root=tmp_path)
+    cfg._extra["dev_source"] = "rtsp://127.0.0.1:1/x"   # refused instantly
+    pipe = make_pipeline(cfg)
+    assert isinstance(pipe.source, RtspCvSource)
+    pipe.source.stop()
+    pipe.stop()
+
+def test_analysis_rate_capped_at_source_fps():
+    src = SyntheticSource(frame_count=10, width=320, height=240)
+    pipe = Pipeline(src, None, None)
+    pipe.start()
+    time.sleep(0.5)
+    pipe.stop()
+    # 10-frame source at 30 fps: must never exceed ~30 analyses per second of
+    # wall clock, however fast the machine replays the source.
+    assert pipe._frames_analysed <= 16

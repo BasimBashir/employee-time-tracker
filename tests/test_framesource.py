@@ -1,3 +1,4 @@
+import time
 import numpy as np
 from service.framesource import FrameSource, SyntheticSource
 
@@ -37,3 +38,15 @@ def test_file_source_reads_synth_clip(tmp_path):
     src.stop()
     assert len(frames) >= 9          # ~1 s at 10 fps; encoder may round
     assert frames[0].image.shape == (240, 320, 3)
+
+def test_rtsp_cv_source_reconnects_on_dead_url():
+    from service.framesource import RtspCvSource
+    src = RtspCvSource("rtsp://127.0.0.1:1/x", timeout_s=1.0)
+    t0 = time.monotonic()
+    f = src.read()                   # dead port: one backoff + retry -> None
+    elapsed = time.monotonic() - t0
+    assert f is None
+    assert src.reconnect_attempts >= 1
+    assert 0.5 <= elapsed <= 5       # first backoff ~1 s, not 30
+    src.stop()
+    assert src.read() is None        # stopped: never reads again
