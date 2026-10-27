@@ -22,11 +22,17 @@ export function App() {
 
   React.useEffect(() => {
     let since = new Date(0).toISOString();
+    const seen = new Set();
     const poll = () => {
       api.events(since)
         .then((rows) => {
-          if (rows.length) {
-            setEvents((prev) => [...rows, ...prev].slice(0, 300));
+          // The API filters with occurred_at >= since, so the newest row can
+          // re-arrive on the next poll — dedupe by primary key, then advance
+          // the cursor. seen also makes the feed safe if timestamps tie.
+          const fresh = rows.filter((r) => !seen.has(r.id));
+          if (fresh.length) {
+            fresh.forEach((r) => seen.add(r.id));
+            setEvents((prev) => [...fresh].reverse().concat(prev).slice(0, 300));
             since = rows[rows.length - 1].occurred_at;
           }
           setStatus('up');

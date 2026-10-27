@@ -27,7 +27,15 @@ function createWindow() {
     },
   });
   mainWindow.setMenuBarVisibility(false);
-  mainWindow.loadFile(RENDERER_INDEX);
+  // Prefer the dashboard as served by the service: same origin as the API, so
+  // fetches are never CORS-bound. Fall back to the local build when the
+  // service is down, so the window still opens (UI shows its "service down"
+  // state and recovers once the service is back).
+  try {
+    await mainWindow.loadURL('http://127.0.0.1:8080/');
+  } catch {
+    await mainWindow.loadFile(RENDERER_INDEX);
+  }
 }
 
 // One window only: multi-window is how Electron memory balloons on a 16 GB box.

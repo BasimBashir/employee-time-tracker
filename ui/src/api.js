@@ -1,7 +1,11 @@
 // The dashboard is a thin client: it fetches and renders, it never computes
 // durations or aggregates. The service owns the data.
 
-const API_BASE = 'http://127.0.0.1:8080';
+// In dev, Vite serves the UI on 5173 while the API stays on 8080. In
+// production the service itself serves this bundle from 8080, so the API is
+// same-origin and the base is empty — no CORS, and the dashboard works on
+// whatever host the service is reached through.
+const API_BASE = import.meta.env.DEV ? 'http://127.0.0.1:8080' : '';
 
 async function get(path) {
   const r = await fetch(`${API_BASE}${path}`);

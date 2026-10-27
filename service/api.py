@@ -12,14 +12,31 @@ from pathlib import Path
 
 import psutil
 from fastapi import Body, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import db as dbmod
 
-# Where the UI build lands (ui/dist/renderer). Overridable so tests can point
-# elsewhere without touching the installed layout.
-UI_DIR = Path(r"C:\Program Files\EmployeeTracker\ui\dist\renderer")
+# Where the built UI lands (ui/dist/renderer), most-specific first: the
+# installed layout, then the repo checkout for dev. Overridable via ui_dir so
+# tests can point elsewhere without touching either.
+_UI_DIRS = (
+    Path(r"C:\Program Files\EmployeeTracker\ui\dist\renderer"),
+    Path(__file__).resolve().parents[1] / "ui" / "dist" / "renderer",
+)
+
+# Only the Vite dev server is cross-origin to the API. The packaged dashboard
+# is served by this service itself (same origin), so it needs no CORS entry —
+# and the API must stay invisible to arbitrary web pages in the user's browser.
+_CORS_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
+
+
+def find_ui_dir() -> Path | None:
+    for d in _UI_DIRS:
+        if d.is_dir():
+            return d
+    return None
 
 
 def create_app(conn, cfg, ui_dir: Path | None = None) -> FastAPI:
@@ -27,7 +44,14 @@ def create_app(conn, cfg, ui_dir: Path | None = None) -> FastAPI:
     app.state.conn = conn
     app.state.cfg = cfg
 
-    ui_dir = Path(ui_dir) if ui_dir else UI_DIR
+    ui_dir = Path(ui_dir) if ui_dir else find_ui_dir()
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_CORS_ORIGINS,
+        allow_methods=["GET", "DELETE"],
+        allow_headers=["Content-Type"],
+    )
 
     @app.get("/health")
     def health():
