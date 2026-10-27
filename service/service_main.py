@@ -32,6 +32,15 @@ def build_server(cfg):
     conn = connect(cfg.db_path)
     migrate(conn)
     app = create_app(conn, cfg)
+
+    # Analysis pipeline (Phase 2). Hollow without a `dev_source`; starts only
+    # when there is something to capture.
+    from .pipeline import make_pipeline
+    pipe = make_pipeline(cfg)
+    app.state.pipeline = pipe
+    if pipe.source is not None:
+        pipe.start()
+
     config = uvicorn.Config(app, host="127.0.0.1", port=cfg.port, log_level="warning")
     server = uvicorn.Server(config)
 
@@ -40,6 +49,16 @@ def build_server(cfg):
 
     watchdog = Watchdog(cfg, restart_callback=request_restart)
     return server, watchdog
+
+
+def stop_pipeline(server) -> None:
+    """Stop the analysis pipeline attached to the server's app, if any."""
+    if server is None:
+        return
+    app = getattr(server.config, "app", None)
+    pipe = getattr(app.state, "pipeline", None) if app is not None else None
+    if pipe is not None:
+        pipe.stop()
 
 
 class TrackerService(win32serviceutil.ServiceFramework):
@@ -77,6 +96,7 @@ class TrackerService(win32serviceutil.ServiceFramework):
 
     def _shutdown(self):
         if self.server:
+            stop_pipeline(self.server)
             self.server.should_exit = True
         for t in self._threads:
             if t:
@@ -99,6 +119,7 @@ def run_foreground(cfg=None) -> None:
     try:
         asyncio.run(server.serve())
     finally:
+        stop_pipeline(server)
         server.should_exit = True
         watchdog.stop()
 

@@ -421,6 +421,32 @@ def create_app(conn, cfg, ui_dir: Path | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc))
         return {"updated": session_id, "purpose": body["purpose"]}
 
+    # --- analysis pipeline --------------------------------------------------
+    @app.get("/pipeline/status")
+    def pipeline_status():
+        pipe = getattr(app.state, "pipeline", None)
+        if pipe is None:
+            return {"running": False}
+        from .device import select_provider, pick_decoder
+        prov, detail = select_provider()
+        return {"running": True, "provider": prov, "provider_detail": detail,
+                "decoder": pick_decoder(),
+                "reconnects": getattr(pipe.source, "reconnect_attempts", 0),
+                **pipe.stats()}
+
+    @app.post("/pipeline/restart")
+    def pipeline_restart():
+        pipe = getattr(app.state, "pipeline", None)
+        if pipe is None:
+            raise HTTPException(status_code=404, detail="no pipeline configured")
+        from .pipeline import make_pipeline
+        pipe.stop()
+        pipe = make_pipeline(cfg)
+        app.state.pipeline = pipe
+        if pipe.source is not None:
+            pipe.start()
+        return {"restarted": True, **pipe.stats()}
+
     # --- dashboard ---------------------------------------------------------
     if ui_dir.is_dir():
         # Mounted last so /health, /events and /sessions keep their meanings.
