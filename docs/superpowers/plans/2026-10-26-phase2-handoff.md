@@ -51,6 +51,14 @@ Do not modify the tracker's gallery format — Phase 4 consumes it.
   delivery after decode measured ~36 fps). The app stops serving when it loses
   the foreground/screen; backoff reconnect then walks 1→2→4→8→16→30 s (cap
   verified) with flat RSS.
+- Live soak (2026-10-27/28, ~10 min through the service endpoints with the real
+  model): 38–39 fps analysis, 15–21 ms detector latency on Dml, interval pinned
+  at 1, dropped_frames 0, RSS ~377 MB flat (ceiling 1500), camera bounced 3×
+  mid-soak and self-healed with no drops; camera killed at the end left the
+  service healthy in backoff. **Not re-verified with the real model**:
+  `/pipeline/restart` (verified model-less earlier; restart rebuild path is the
+  same code), and a live person end-to-end track on camera (verified instead
+  with ultralytics' `bus.jpg`: 4 persons).
 - The Windows service is **not installed** on this dev box; it runs in
   foreground (`python -m service.service_main run`). End-to-end verification
   used a temp data root + `dev_source` on port 8099.
