@@ -64,11 +64,16 @@ class TrackerService(win32serviceutil.ServiceFramework):
         cfg = load_config()
         self.server, self.watchdog = build_server(cfg)
         self.watchdog.start()
-        t = threading.Thread(target=self.server.run, name="uvicorn", daemon=False)
+        t = threading.Thread(target=self._serve, name="uvicorn", daemon=False)
         t.start()
         self._threads = [self.watchdog.thread, t]
         win32event.WaitForSingleObject(self.stop_event, win32event.INFINITE)
         self._shutdown()
+
+    def _serve(self) -> None:
+        """uvicorn's blocking form; runs on the worker thread."""
+        import asyncio
+        asyncio.run(self.server.serve())
 
     def _shutdown(self):
         if self.server:
@@ -81,13 +86,20 @@ class TrackerService(win32serviceutil.ServiceFramework):
 
 
 def run_foreground(cfg=None) -> None:
-    """Run the API + watchdog in this process (console / debug mode)."""
+    """Run the API + watchdog in this process (console / debug mode).
+
+    `Server.run()` is not reliable as the blocking entry point here — it returns
+    instead of serving. `asyncio.run(server.serve())` is uvicorn's documented
+    blocking form and holds the loop open until shutdown.
+    """
+    import asyncio
     cfg = cfg or load_config()
     server, watchdog = build_server(cfg)
     watchdog.start()
     try:
-        server.run()
+        asyncio.run(server.serve())
     finally:
+        server.should_exit = True
         watchdog.stop()
 
 
