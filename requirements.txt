@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+pywin32
+psutil
+pystray
+pillow
+httpx
+pytest
