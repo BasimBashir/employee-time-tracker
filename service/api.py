@@ -149,6 +149,16 @@ def create_app(conn, cfg, ui_dir: Path | None = None) -> FastAPI:
             return {"enabled": False}
         return {"enabled": True, **notifiermod.bridge_status(cfg)}
 
+    @app.get("/notify/qr")
+    def notify_qr():
+        """The bridge's pairing QR, proxied so the dashboard stays same-origin."""
+        if cfg is None or not getattr(cfg, "notify_enabled", False):
+            raise HTTPException(status_code=404)
+        png = notifiermod.bridge_qr(cfg)
+        if png is None:
+            raise HTTPException(status_code=404)
+        return Response(png, media_type="image/png")
+
     @app.patch("/sessions/{session_id}")
     def patch_session(session_id: int, body: dict = Body(...)):
         if "purpose" not in body:

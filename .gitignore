@@ -8,3 +8,4 @@ node_modules/
 ui/dist/
 ui/node_modules/
 whatsapp_bridge/session/
+whatsapp_bridge/bridge.log

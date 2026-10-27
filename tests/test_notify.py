@@ -124,6 +124,52 @@ def test_notify_status_endpoint(tmp_path):
     assert body["enabled"] is True and body["reachable"] is False
 
 
+def test_bridge_qr_returns_bytes_or_none(monkeypatch):
+    class FakeResponse:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return b"QRPNG"
+
+    seen = {}
+
+    def fake_urlopen(req, timeout=None):
+        seen["url"] = req.full_url
+        return FakeResponse()
+
+    monkeypatch.setattr(notifier.urllib.request, "urlopen", fake_urlopen)
+    assert notifier.bridge_qr(CFG) == b"QRPNG"
+    assert seen["url"] == f"{DEAD_URL}/qr.png"
+
+    def down(req, timeout=None):
+        raise OSError("bridge unreachable")
+
+    monkeypatch.setattr(notifier.urllib.request, "urlopen", down)
+    assert notifier.bridge_qr(CFG) is None
+
+
+def test_notify_qr_endpoint(tmp_path, monkeypatch):
+    conn = make_conn(tmp_path)
+    # Disabled (or no cfg): no QR exists to serve.
+    c = TestClient(create_app(conn, None))
+    assert c.get("/notify/qr").status_code == 404
+    # Enabled: the endpoint proxies whatever bridge_qr fetched.
+    monkeypatch.setattr(notifier, "bridge_qr", lambda cfg, timeout=3.0: b"QRPNG")
+    c = TestClient(create_app(conn, CFG))
+    r = c.get("/notify/qr")
+    assert r.status_code == 200 and r.content == b"QRPNG"
+    assert r.headers["content-type"] == "image/png"
+    # Bridge down or still linking: bridge_qr comes back None → 404.
+    monkeypatch.setattr(notifier, "bridge_qr", lambda cfg, timeout=3.0: None)
+    assert c.get("/notify/qr").status_code == 404
+
+
 # ------------------------------------------------------------ simulator -----
 def test_simulator_fires_notifications(tmp_path, monkeypatch):
     conn = make_conn(tmp_path)

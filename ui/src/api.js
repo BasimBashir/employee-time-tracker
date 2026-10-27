@@ -58,5 +58,11 @@ export const api = {
   weeklyReport: (end, days = 7) => get(`/report/weekly?end=${end}&days=${days}`),
   reportCsvUrl: (date) => `${API_BASE}/report/daily.csv?date=${date}`,
 
+  // WhatsApp link state for the header chip: `{enabled: false}` when
+  // notifications are off, otherwise `{enabled, reachable, bridge}`.
+  notifyStatus: () => get('/notify/status'),
+  // The pairing QR (PNG) is fetched by URL, not through get() — it's an image.
+  notifyQrUrl: () => `${API_BASE}/notify/qr`,
+
   today: () => new Date().toISOString().slice(0, 10),
 };

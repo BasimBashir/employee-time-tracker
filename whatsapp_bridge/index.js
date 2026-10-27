@@ -21,10 +21,15 @@ import makeWASocket, {
   useMultiFileAuthState,
 } from 'baileys';
 import { rmSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const PORT = Number(process.env.PORT || 8090);
 const HOST = '127.0.0.1';
-const SESSION_DIR = process.env.SESSION_DIR || './session';
+// Resolved from this file's own location, not the cwd: auto-start launches
+// (Run key, Task Scheduler) don't let us pick the working directory.
+const BRIDGE_DIR = path.dirname(fileURLToPath(import.meta.url));
+const SESSION_DIR = process.env.SESSION_DIR || path.join(BRIDGE_DIR, 'session');
 const log = pino({ level: process.env.LOG_LEVEL || 'warn' });
 
 const state = {

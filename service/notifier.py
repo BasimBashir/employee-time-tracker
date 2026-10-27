@@ -63,6 +63,21 @@ def bridge_status(cfg, timeout: float = 3.0) -> dict:
         return {"reachable": False, "error": str(exc)}
 
 
+def bridge_qr(cfg, timeout: float = 3.0) -> bytes | None:
+    """The pairing QR as PNG bytes while the bridge is unlinked, else None."""
+    key = getattr(cfg, "notify_bridge_key", "")
+    req = urllib.request.Request(
+        f"{cfg.notify_bridge_url}/qr.png",
+        headers={"X-Bridge-Key": key} if key else {})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            if r.status == 200:
+                return r.read()
+    except Exception:  # noqa: BLE001 — the QR is best-effort
+        pass
+    return None
+
+
 # --------------------------------------------------------------- messages ----
 def _label(purpose: str) -> str:
     return "delivery trip" if purpose == "delivery" else "break"

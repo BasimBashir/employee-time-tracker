@@ -70,6 +70,23 @@ without a number simply get no notifications.
 | POST   | `/send`     | `{ "to": "+92300…", "text": "…" }` (queued)      |
 | POST   | `/logout`   | Unlink and wipe the session, re-pair             |
 
-Auto-start with Windows: point the existing auto-start task (or a
-shortcut in `shell:startup`) at `npm start` in this folder, or run
-`node index.js` under the same watchdog as the service.
+## Auto-start with Windows
+
+```powershell
+powershell -ExecutionPolicy Bypass -File whatsapp_bridge\register-autostart.ps1
+```
+
+That registers an HKCU Run key (`EmployeeTrackerWhatsAppBridge`, same
+pattern as the tray app — no admin needed) pointing at
+`start-hidden.vbs`, which launches node with no console window, logging
+to `whatsapp_bridge\bridge.log`. It also starts the bridge immediately,
+so you only scan the QR once. The bridge resolves its session folder
+from its own file location, so the working directory doesn't matter.
+
+To undo: delete the `EmployeeTrackerWhatsAppBridge` value from
+`HKCU:\Software\Microsoft\Windows\CurrentVersion\Run`.
+
+The dashboard header shows the link state (linked / scan QR / linking /
+logged out / down) once `notify_enabled` is on; "scan QR" opens the
+pairing image directly (`/notify/qr` on the service, which proxies the
+bridge — the dashboard stays same-origin).
