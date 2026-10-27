@@ -5,3 +5,5 @@ dist/
 build/
 node_modules/
 *.egg-info/
+ui/dist/
+ui/node_modules/
