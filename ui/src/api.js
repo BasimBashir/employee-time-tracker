@@ -23,6 +23,16 @@ async function del(path, body) {
   return r.json();
 }
 
+async function patch(path, body) {
+  const r = await fetch(`${API_BASE}${path}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+  return r.json();
+}
+
 export const api = {
   health: () => get('/health'),
   rss: () => get('/health/rss'),
@@ -35,6 +45,18 @@ export const api = {
   // Soft delete: the row survives with a reason, recorded in the audit log.
   deleteSession: (id, actor, reason) =>
     del(`/sessions/${id}`, { actor, reason }),
+
+  // Re-tag a trip. 'delivery' minutes are work time and exempt from the
+  // daily out allowance; 'break' minutes count against it.
+  setSessionPurpose: (id, purpose, actor = 'owner') =>
+    patch(`/sessions/${id}`, { purpose, actor }),
+
+  // role: 'staff' | 'delivery'; allowed_out_minutes: number or null (inherit).
+  updateEmployee: (id, body) => patch(`/employees/${id}`, body),
+
+  dailyReport: (date) => get(`/report/daily?date=${date}`),
+  weeklyReport: (end, days = 7) => get(`/report/weekly?end=${end}&days=${days}`),
+  reportCsvUrl: (date) => `${API_BASE}/report/daily.csv?date=${date}`,
 
   today: () => new Date().toISOString().slice(0, 10),
 };

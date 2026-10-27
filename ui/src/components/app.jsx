@@ -4,12 +4,14 @@ import SummaryStrip from './SummaryStrip.jsx';
 import CurrentlyOut from './CurrentlyOut.jsx';
 import LiveFeed from './LiveFeed.jsx';
 import SessionsTable from './SessionsTable.jsx';
+import ReportsPanel from './ReportsPanel.jsx';
 import { api } from '../api.js';
 
 export function App() {
   const [status, setStatus] = React.useState(null);
   const [sessions, setSessions] = React.useState([]);
   const [events, setEvents] = React.useState([]);
+  const [report, setReport] = React.useState(null);
   const [date, setDate] = React.useState(() => api.today());
 
   React.useEffect(() => {
@@ -19,6 +21,16 @@ export function App() {
   React.useEffect(() => {
     api.sessions(date).then(setSessions).catch(() => {});
   }, [date]);
+
+  const loadReports = React.useCallback(() => {
+    Promise.all([api.dailyReport(date), api.weeklyReport(date)])
+      .then(([daily, weekly]) => setReport({ daily, weekly }))
+      .catch(() => {});
+  }, [date]);
+
+  React.useEffect(() => {
+    loadReports();
+  }, [loadReports]);
 
   React.useEffect(() => {
     let since = new Date(0).toISOString();
@@ -46,18 +58,20 @@ export function App() {
 
   function reload() {
     api.sessions(date).then(setSessions).catch(() => {});
+    loadReports();
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex min-h-full flex-col">
       <Header status={status} />
-      <main className="flex flex-col gap-5 overflow-y-auto p-5">
+      <main className="flex flex-1 flex-col gap-5 p-5">
         <SummaryStrip sessions={sessions} events={events} />
         <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
           <LiveFeed events={events} />
           <CurrentlyOut sessions={sessions} />
         </div>
-        <SessionsTable sessions={sessions} onDeleted={reload} />
+        <SessionsTable sessions={sessions} onChanged={reload} />
+        <ReportsPanel report={report} date={date} onChanged={reload} />
       </main>
     </div>
   );

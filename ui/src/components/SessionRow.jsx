@@ -23,8 +23,9 @@ function ActionButton({ label, tone = 'ink', onClick }) {
   );
 }
 
-export function SessionRow({ session, onDelete }) {
+export function SessionRow({ session, onDelete, onTogglePurpose }) {
   const inferred = session.inferred_return === 1;
+  const delivery = session.purpose === 'delivery';
   return (
     <tr className="group border-b border-ink-500/40">
       <td className="py-2 pl-3 pr-2">
@@ -40,6 +41,20 @@ export function SessionRow({ session, onDelete }) {
         {session.in_at ? new Date(session.in_at).toLocaleTimeString('en-GB') : '—'}
       </td>
       <td className="num px-2">{fmtMins(session.duration_minutes)}</td>
+      <td className="px-2">
+        <button
+          type="button"
+          onClick={onTogglePurpose}
+          title="Delivery trips are work time — they don't count against the out allowance"
+          className={`rounded-md border px-2 py-0.5 text-label font-medium tracking-normal transition-colors ${
+            delivery
+              ? 'border-azure/40 bg-azure/10 text-azure'
+              : 'border-ink-500/60 bg-ink-800 text-paper-faint hover:bg-ink-700 hover:text-paper'
+          }`}
+        >
+          {delivery ? 'Delivery' : 'Break'}
+        </button>
+      </td>
       <td className="px-2">
         {inferred ? (
           <span className="text-amber" title="No return detected; closed at midnight">

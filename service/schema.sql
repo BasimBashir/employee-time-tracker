@@ -6,6 +6,12 @@ CREATE TABLE IF NOT EXISTS employees (
   employee_code TEXT UNIQUE,
   department TEXT,
   active INTEGER NOT NULL DEFAULT 1,
+  -- 'staff' | 'delivery'. Delivery staff's trips default to purpose='delivery'
+  -- (work time, not break time).
+  role TEXT NOT NULL DEFAULT 'staff',
+  -- Per-employee daily out-of-floor budget in minutes; NULL inherits the
+  -- config default (default_allowed_out_minutes).
+  allowed_out_minutes INTEGER,
   created_at TEXT NOT NULL,
   deleted_at TEXT
 );
@@ -60,6 +66,9 @@ CREATE TABLE IF NOT EXISTS sessions (
   in_at TEXT,
   duration_minutes REAL,
   inferred_return INTEGER NOT NULL DEFAULT 0,
+  -- 'break' counts against the daily out budget; 'delivery' is work time and
+  -- does not. Defaults from the employee's role, re-taggable in the dashboard.
+  purpose TEXT NOT NULL DEFAULT 'break',
   date TEXT NOT NULL,
   deleted_at TEXT,
   deleted_reason TEXT

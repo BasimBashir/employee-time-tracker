@@ -7,13 +7,15 @@ The service also serves the built dashboard from disk, so the tray's "Open
 dashboard" shortcut and any browser on the machine can load it without Electron
 having to run its own server.
 """
+import csv
+import io
 import os
 from pathlib import Path
 
 import psutil
 from fastapi import Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from . import db as dbmod
@@ -86,6 +88,71 @@ def create_app(conn, cfg, ui_dir: Path | None = None) -> FastAPI:
         dbmod.soft_delete_session(conn, session_id,
                                   body.get("actor", "?"), body.get("reason", ""))
         return {"deleted": session_id}
+
+    # --- reports -----------------------------------------------------------
+    # Delivery trips are work and exempt; the allowance resolves per employee,
+    # falling back to the config default (60 when cfg is None, as in tests).
+    def _allowed_default() -> int:
+        if cfg is None:
+            return 60
+        return getattr(cfg, "default_allowed_out_minutes", 60)
+
+    @app.get("/report/daily")
+    def report_daily(date: str):
+        return dbmod.daily_report(conn, date, _allowed_default())
+
+    @app.get("/report/weekly")
+    def report_weekly(end: str, days: int = 7):
+        return dbmod.weekly_report(conn, end, days, _allowed_default())
+
+    @app.get("/report/daily.csv")
+    def report_daily_csv(date: str):
+        """The employer's export: one row per employee for the day."""
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(["employee_id", "name", "code", "department", "role",
+                         "trips", "open_trips", "break_min", "delivery_min",
+                         "total_min", "allowed_min", "extra_min"])
+        for r in dbmod.daily_report(conn, date, _allowed_default()):
+            writer.writerow([r["employee_id"], r["name"], r["employee_code"] or "",
+                             r["department"] or "", r["role"], r["trips"],
+                             r["open_trips"], r["break_minutes"],
+                             r["delivery_minutes"], r["total_minutes"],
+                             r["allowed_minutes"], r["extra_minutes"]])
+        return Response(
+            buf.getvalue(), media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": f"attachment; filename=out-time-{date}.csv"})
+
+    @app.patch("/employees/{employee_id}")
+    def patch_employee(employee_id: int, body: dict = Body(...)):
+        if conn.execute("SELECT 1 FROM employees WHERE id=?",
+                        (employee_id,)).fetchone() is None:
+            raise HTTPException(status_code=404, detail=f"no employee {employee_id}")
+        allowance = (body["allowed_out_minutes"]
+                     if "allowed_out_minutes" in body else dbmod.UNSET)
+        try:
+            dbmod.update_employee(conn, employee_id, role=body.get("role"),
+                                  allowed_out_minutes=allowance)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        row = conn.execute(
+            "SELECT id, name, role, allowed_out_minutes FROM employees WHERE id=?",
+            (employee_id,)).fetchone()
+        return dict(row)
+
+    @app.patch("/sessions/{session_id}")
+    def patch_session(session_id: int, body: dict = Body(...)):
+        if "purpose" not in body:
+            raise HTTPException(status_code=400, detail="purpose is required")
+        if conn.execute("SELECT 1 FROM sessions WHERE id=?",
+                        (session_id,)).fetchone() is None:
+            raise HTTPException(status_code=404, detail=f"no session {session_id}")
+        try:
+            dbmod.set_session_purpose(conn, session_id, body["purpose"],
+                                      body.get("actor", "?"))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        return {"updated": session_id, "purpose": body["purpose"]}
 
     # --- dashboard ---------------------------------------------------------
     if ui_dir.is_dir():

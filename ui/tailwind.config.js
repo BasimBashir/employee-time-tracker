@@ -23,6 +23,10 @@ export default {
         rose: { DEFAULT: '#E5484D', soft: '#F2686C', bg: '#2A1216' },
         jade: { DEFAULT: '#30A46C', soft: '#3FBF87', bg: '#10251A' },
         amber: '#F5A524',
+        // Chart series color for "delivery" time. Validated (dataviz six checks)
+        // against the ink-700 panel surface alongside rose: CVD dE 23.0,
+        // normal-vision dE 31.9, contrast >= 3:1.
+        azure: '#3987E5',
       },
       fontFamily: {
         sans: ['"Space Grotesk"', 'system-ui', 'sans-serif'],

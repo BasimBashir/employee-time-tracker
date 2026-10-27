@@ -21,6 +21,9 @@ class Config:
     analysis_target_latency_ms: int = 120
     confirm_threshold: float = 0.45
     uncertain_threshold: float = 0.35
+    # Daily out-of-floor budget per employee when they have no override of
+    # their own. Delivery trips never count against it.
+    default_allowed_out_minutes: int = 60
     _extra: dict = field(default_factory=dict)
 
     @property
@@ -74,6 +77,7 @@ class Config:
             "analysis_target_latency_ms": self.analysis_target_latency_ms,
             "confirm_threshold": self.confirm_threshold,
             "uncertain_threshold": self.uncertain_threshold,
+            "default_allowed_out_minutes": self.default_allowed_out_minutes,
             **self._extra,
         }
         self.config_path.write_text(json.dumps(payload, indent=2))
