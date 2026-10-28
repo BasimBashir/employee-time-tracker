@@ -9,3 +9,6 @@ pytest
 numpy
 opencv-python-headless
 onnxruntime-directml
+openpyxl
+reportlab
+pypdf
