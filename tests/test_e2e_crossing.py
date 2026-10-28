@@ -27,7 +27,7 @@ def test_two_excursions(tmp_path):
     rec = ClipRecorder(tmp_path / "clips", pre_seconds=1, post_seconds=0, fps=10)
     d = Decider(conn, rec,
                 zone_provider=lambda c: Zone(1, c, LINE, "POS_TO_NEG", True),
-                identity_resolver=lambda t: (1, 0.92))
+                identity_resolver=lambda t: (1, 0.92, 0))
     # person 1: above the line, walks below it (OUT), returns (IN), twice —
     # frames 4 s apart so each confirmed crossing clears the 3 s debounce
     walk = [100, 200, 320, 400, 400, 320, 200, 100,

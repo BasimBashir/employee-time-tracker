@@ -33,10 +33,11 @@ class Decider:
             return
         ts = _ts(frame)
         for trk in tracks:
-            emp_conf = self.identity_resolver(trk)
-            if emp_conf is None:
+            resolved = self.identity_resolver(trk)
+            if resolved is None:
                 continue                          # unenrolled -> no records at all
-            emp_id, conf = emp_conf
+            # resolver contract (Phase 4): (employee_id, confidence, uncertain)
+            emp_id, conf, uncertain = resolved
             side = linecross.side_of(trk.centroid, zone.line_points)
             crosses = self.sm.on_track_position(trk.track_id, side, ts)
             if not crosses:
@@ -47,7 +48,8 @@ class Decider:
             if direction is not None:
                 self.stats_counters["crossings"] += 1
                 self._apply_all(self.sm.on_crossing(
-                    Crossing(emp_id, direction, ts, zone.camera_id, trk.track_id, conf)))
+                    Crossing(emp_id, direction, ts, zone.camera_id, trk.track_id,
+                             conf, uncertain)))
 
     # -- direct seam for tests and manual triggers (bypasses debounce) --------
     def on_crossing(self, c: Crossing) -> None:

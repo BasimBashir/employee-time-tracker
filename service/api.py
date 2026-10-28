@@ -63,6 +63,8 @@ def create_app(conn, cfg, ui_dir: Path | None = None) -> FastAPI:
     app = FastAPI(title="Employee Tracker")
     app.state.conn = conn
     app.state.cfg = cfg
+    from .resolver import Resolver
+    app.state.resolver = Resolver(conn)
 
     ui_dir = Path(ui_dir) if ui_dir else find_ui_dir()
 
@@ -493,8 +495,27 @@ def create_app(conn, cfg, ui_dir: Path | None = None) -> FastAPI:
               {"purged": len(purged)})
         return {"purged": len(purged), "clip_paths_cleared": cleared}
 
+    # --- identity (Phase 4) -------------------------------------------------
+    def _invalidate():
+        r = getattr(app.state, "resolver", None)
+        if r:
+            r.invalidate()
+
+    @app.get("/resolver/status")
+    def resolver_status():
+        r = getattr(app.state, "resolver", None)
+        if r is None:
+            return {"ready": False, "roster_size": 0}
+        return {"ready": True, "roster_size": len(r._ids),
+                "confirm": r.confirm, "uncertain": r.uncertain}
+
+    @app.post("/resolver/invalidate")
+    def resolver_invalidate():
+        _invalidate()
+        return {"ok": True}
+
     # --- dashboard ---------------------------------------------------------
-    if ui_dir.is_dir():
+    if ui_dir and ui_dir.is_dir():
         # Mounted last so /health, /events and /sessions keep their meanings.
         app.mount("/", StaticFiles(directory=str(ui_dir), html=True), name="ui")
 

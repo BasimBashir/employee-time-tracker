@@ -17,7 +17,7 @@ def make_decider(tmp_path):
     rec = SimpleNamespace(add_frame=lambda *a: None,
                           capture=lambda *a, **k: tmp_path / "c.mp4")
     d = Decider(conn, rec, zone_provider=lambda cam: get_active_zone(conn, cam),
-                identity_resolver=lambda trk: (1, 0.9))    # everything is employee 1
+                identity_resolver=lambda trk: (1, 0.9, 0))  # everything is employee 1
     return conn, d
 
 def _track(tid, cx, cy):
