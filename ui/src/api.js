@@ -84,6 +84,22 @@ export const api = {
   // Soft delete: the reason lands in the audit log; history stays resolvable.
   removeEmployee: (id, reason) => del(`/employees/${id}`, { actor: 'owner', reason }),
 
+  // Phase 4 identity: enroll from a video file the service can read. Unlike
+  // post(), surfaces the service's error detail (e.g. "only 3/10 poses
+  // captured") instead of just the status line.
+  enroll: async (employeeId, path) => {
+    const r = await fetch(`${API_BASE}/enrollments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ employee_id: employeeId, path, source: 'file' }),
+    });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(body.detail || `${r.status} ${r.statusText}`);
+    return body;
+  },
+  // {ready, roster_size, confirm, uncertain} — the identity chip's data.
+  resolverStatus: () => get('/resolver/status'),
+
   // Editable namaz timetable: a month (or whole year) of effective prayer
   // start times plus the global settings. `time` null clears an override.
   namaz: (year, month) => get(`/namaz?year=${year}${month ? `&month=${month}` : ''}`),

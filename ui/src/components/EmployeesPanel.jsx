@@ -105,7 +105,7 @@ function EmployeeMedia({ emp, onChanged }) {
   );
 }
 
-function EmployeeCard({ emp, onChanged }) {
+function EmployeeCard({ emp, onChanged, onEnrolled }) {
   async function patch(body, what) {
     try {
       await api.updateEmployee(emp.employee_id, body);
@@ -128,6 +128,24 @@ function EmployeeCard({ emp, onChanged }) {
     } catch (err) {
       window.alert(`Could not remove ${emp.name}: ${err.message}`);
     }
+  }
+
+  async function enroll() {
+    const path = window.prompt(
+      `Enroll ${emp.name}\n` +
+        'Path to a video (mp4) of their face that the service can read.\n' +
+        'Include the angles the gate camera actually sees — it looks down ' +
+        'from the ceiling, so side views matter.',
+    );
+    if (!path) return;
+    try {
+      const r = await api.enroll(emp.employee_id, path);
+      window.alert(`Enrolled: ${r.poses} face poses captured.`);
+    } catch (err) {
+      window.alert(`Enrollment failed: ${err.message}`);
+    }
+    onChanged?.();
+    onEnrolled?.();
   }
 
   return (
@@ -175,8 +193,16 @@ function EmployeeCard({ emp, onChanged }) {
         />
         <button
           type="button"
+          onClick={enroll}
+          title="Capture face references from a video file"
+          className="ml-auto text-label text-paper-faint transition-colors hover:text-paper"
+        >
+          Enroll face
+        </button>
+        <button
+          type="button"
           onClick={remove}
-          className="ml-auto text-label text-paper-faint transition-colors hover:text-rose"
+          className="text-label text-paper-faint transition-colors hover:text-rose"
         >
           Remove
         </button>
@@ -224,6 +250,11 @@ function EmployeeCard({ emp, onChanged }) {
 
 export function EmployeesPanel({ employees, onChanged }) {
   const [draft, setDraft] = React.useState({ name: '', employee_code: '', department: '' });
+  const [identity, setIdentity] = React.useState(null);
+  const loadIdentity = React.useCallback(() => {
+    api.resolverStatus().then(setIdentity).catch(() => setIdentity(null));
+  }, []);
+  React.useEffect(loadIdentity, [loadIdentity]);
 
   async function add() {
     if (!draft.name.trim()) return;
@@ -249,6 +280,16 @@ export function EmployeesPanel({ employees, onChanged }) {
         <h2 className="text-label font-medium uppercase tracking-widest text-paper-faint">
           Employees — profiles &amp; rules
         </h2>
+        <span
+          className="num text-[10px] text-paper-faint/80"
+          title={identity
+            ? `identity confirms at cosine ${identity.confirm}, flags below certainty at ${identity.uncertain}`
+            : 'resolver status unavailable'}
+        >
+          {identity
+            ? `${identity.roster_size} face ref(s) · confirm ${identity.confirm}`
+            : 'identity: —'}
+        </span>
         <div className="flex flex-wrap items-center gap-2">
           <input
             value={draft.name}
@@ -291,7 +332,12 @@ export function EmployeesPanel({ employees, onChanged }) {
           </p>
         ) : (
           employees.map((emp) => (
-            <EmployeeCard key={emp.employee_id} emp={emp} onChanged={onChanged} />
+            <EmployeeCard
+              key={emp.employee_id}
+              emp={emp}
+              onChanged={onChanged}
+              onEnrolled={loadIdentity}
+            />
           ))
         )}
       </div>

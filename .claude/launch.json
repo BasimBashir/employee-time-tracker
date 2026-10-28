@@ -2,20 +2,9 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "service",
-      "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "service.service_main", "run"],
-      "port": 8080
-    },
-    {
       "name": "dashboard",
-      "url": "http://127.0.0.1:8080",
-      "port": 8080
-    },
-    {
-      "name": "employee-tracker-ui",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "ui", "run", "dev"],
+      "runtimeArgs": ["run", "dev", "--prefix", "ui"],
       "port": 5173
     }
   ]
