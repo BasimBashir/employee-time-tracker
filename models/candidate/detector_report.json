@@ -1,0 +1,12 @@
+{
+  "verdict": "KEEP TRAINING \u2014 person mAP50 0.79 below 0.85",
+  "metrics": {
+    "mAP50": 0.895,
+    "mAP50-95": 0.79125,
+    "per_class": {
+      "person": {
+        "mAP50": 0.79125
+      }
+    }
+  }
+}
