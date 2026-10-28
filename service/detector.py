@@ -7,9 +7,12 @@ reports stats before anyone has trained/exported a model.
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+import logging
 import numpy as np
 import onnxruntime as ort
 from .device import select_provider
+
+log = logging.getLogger(__name__)
 
 PERSON_CLASS_ID = 0   # COCO "person"
 
@@ -31,8 +34,17 @@ class Detector:
         if self.model_path.exists():
             so = ort.SessionOptions()
             so.intra_op_num_threads = 0          # let ORT use physical cores
-            self._session = ort.InferenceSession(
-                str(self.model_path), sess_options=so, providers=[self.provider])
+            try:
+                self._session = ort.InferenceSession(
+                    str(self.model_path), sess_options=so, providers=[self.provider])
+            except Exception:
+                # A picked-but-unusable provider (e.g. DML on a VM whose vGPU
+                # lacks DX12) must not take the whole service down.
+                log.warning("provider %s unusable — falling back to CPU",
+                            self.provider, exc_info=True)
+                self.provider = "CPUExecutionProvider"
+                self._session = ort.InferenceSession(
+                    str(self.model_path), sess_options=so, providers=[self.provider])
 
     def detect(self, image: np.ndarray) -> list[Detection]:
         if self._session is None:

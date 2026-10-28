@@ -49,7 +49,7 @@ python -m pip install -r requirements.txt pyinstaller
 # --onedir, not --onefile: a onefile service pays a full self-extract on every
 # SCM start and blows Windows' 30 s service-start budget on slow disks.
 python -m PyInstaller --onedir --name service_main --paths . --collect-all uvicorn --exclude-module torch --exclude-module torchvision --add-data "service/schema.sql;service" installer/service_main_entry.py
-python -m PyInstaller --onefile --name tray_app --paths . tray/tray_app.py
+python -m PyInstaller --onedir --windowed --name tray_app --paths . tray/tray_app.py
 ```
 
 `installer/service_main_entry.py` hosts the service when the Service Control

@@ -181,8 +181,9 @@ def main(argv=None) -> None:
         # both run in the foreground: debug is a console alias used when developing
         run_foreground()
     else:
-        # install/start/stop/restart/remove go through pywin32
-        win32serviceutil.HandleCommandLine(TrackerService, argv=[args.action])
+        # install/start/stop/restart/remove go through pywin32. HandleCommandLine
+        # parses argv[1:], so the program name has to head the list.
+        win32serviceutil.HandleCommandLine(TrackerService, argv=[sys.argv[0], args.action])
 
 
 if __name__ == "__main__":

@@ -14,7 +14,7 @@ let mainWindow = null;
 // on 5173 instead — main.js can only load files, so dev runs against the last build.
 const RENDERER_INDEX = path.join(__dirname, 'dist', 'renderer', 'index.html');
 
-function createWindow() {
+async function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
