@@ -62,9 +62,10 @@ def train(dataset_root: Path, epochs: int = 100, imgsz: int = 640,
     from ultralytics import YOLO
     ds = detector_dataset(dataset_root)
     m = YOLO(model)
+    # resolve the project path: ultralytics 8.4 nests relative ones under its own runs dir
     m.train(data=str(ds.yaml_path()), epochs=epochs, imgsz=imgsz, device=device,
-            project=project, name=name)
-    best = Path(project) / name / "weights" / "best.pt"
+            project=str(Path(project).resolve()), name=name)
+    best = Path(m.trainer.best)
     if not best.exists():
         raise RuntimeError("training produced no best.pt")
     return best

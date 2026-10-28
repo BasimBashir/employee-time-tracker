@@ -50,6 +50,10 @@ def validate_onnx(path: Path, provider: str, imgsz: int = 640) -> dict:
     cannot load is a failed export, and this is what catches that."""
     import onnxruntime as ort
     import onnx
+    if provider not in ort.get_available_providers():
+        # ORT would silently fall back to another provider — that hides the truth
+        return {"ok": False, "provider": provider,
+                "error": f"provider not installed (available: {ort.get_available_providers()})"}
     m = onnx.load(str(path))
     if m.ir_version > MAX_IR_VERSION:
         m.ir_version = MAX_IR_VERSION

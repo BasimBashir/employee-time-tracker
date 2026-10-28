@@ -21,3 +21,6 @@ tests/fixtures/
 datasets/*
 !datasets/.gitkeep
 !datasets/README.md
+
+# training run output (weights, curves) — regenerable
+runs/
