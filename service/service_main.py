@@ -63,9 +63,10 @@ def stop_pipeline(server) -> None:
 
 def _nightly_loop(conn, cfg, stop: threading.Event) -> None:
     """23:59 daily housekeeping: force-close sessions still open so a missing
-    return never becomes an infinite timer."""
+    return never becomes an infinite timer, then purge expired clips."""
     from datetime import datetime
     from .db import force_close_open_sessions, audit
+    from .retention import nightly_retention
     fired_on = None
     while not stop.is_set():
         now = datetime.now()
@@ -74,6 +75,7 @@ def _nightly_loop(conn, cfg, stop: threading.Event) -> None:
                 n = force_close_open_sessions(conn, now.date().isoformat())
                 audit(conn, "system", "midnight_rollover", now.date().isoformat(),
                       {"forced": n})
+                nightly_retention(cfg, conn)
                 fired_on = now.date().isoformat()
             except Exception:
                 log.exception("nightly rollover failed")

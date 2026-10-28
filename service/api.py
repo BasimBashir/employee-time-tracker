@@ -481,6 +481,18 @@ def create_app(conn, cfg, ui_dir: Path | None = None) -> FastAPI:
             return []
         return sorted(str(p) for p in day.rglob("*.mp4"))
 
+    @app.post("/retention/purge")
+    def manual_purge(body: dict = Body(...)):
+        from .retention import purge_clips_older_than, clear_clip_paths
+        from .db import audit
+        days = int(body.get("days", 30))
+        root = cfg.clips_dir if cfg else (DEFAULT_DATA_ROOT / "clips")
+        purged = purge_clips_older_than(root, days)
+        cleared = clear_clip_paths(conn, purged)
+        audit(conn, body.get("actor", "owner"), "manual_clip_purge", str(days),
+              {"purged": len(purged)})
+        return {"purged": len(purged), "clip_paths_cleared": cleared}
+
     # --- dashboard ---------------------------------------------------------
     if ui_dir.is_dir():
         # Mounted last so /health, /events and /sessions keep their meanings.
