@@ -4,9 +4,9 @@
 $dir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $vbs = Join-Path $dir "start-hidden.vbs"
 
-node --version 2>$null | Out-Null
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "node.exe was not found on PATH - install Node.js 20+ first."
+# The installed bridge ships its own node.exe; the dev checkout falls back to PATH.
+if (-not (Test-Path (Join-Path $dir "node.exe")) -and $null -eq (Get-Command node -ErrorAction SilentlyContinue)) {
+    Write-Error "node.exe was not found beside the bridge and not on PATH - install Node.js 20+ first."
     exit 1
 }
 

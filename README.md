@@ -64,6 +64,20 @@ robocopy . ..\dist\ui /E /XD dist node_modules\.cache   # stage the Electron she
 The staged `dist\ui` keeps `main.js`, `preload.js` and `node_modules` (which
 carries the Electron runtime), with the built renderer under `dist\renderer`.
 
+## WhatsApp bridge (bundled — no Node install on the target)
+
+```bash
+mkdir installer\dist\bridge && cp whatsapp_bridge/* installer\dist\bridge/   # keep out npm_ci logs
+cd installer\dist\bridge && npm ci --omit=dev
+curl -o node.exe https://nodejs.org/dist/latest-v22.x/win-x64/node.exe       # ~85 MB portable runtime
+```
+
+`register-autostart.ps1` prefers the bundled `node.exe` and falls back to PATH
+for the dev checkout. The only native module (sharp, pulled by Baileys) ships
+prebuilt win32-x64 binaries — no compiler needed on the target. The bridge
+installs to `{commonappdata}\EmployeeTracker\bridge` (users-modify) because it
+writes its session and log there at runtime.
+
 ## Installer (Inno Setup)
 
 ```bash
