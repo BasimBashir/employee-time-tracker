@@ -124,6 +124,13 @@ class Pipeline:
         }
 
 
+def detector_path(cfg) -> Path:
+    """A promoted artefact (models/active/detector.onnx, written by tools/promote.py)
+    wins; otherwise fall back to the stock yolo11n export."""
+    active = cfg.models_dir / "active" / "detector.onnx"
+    return active if active.exists() else cfg.models_dir / "yolo11n.onnx"
+
+
 def make_pipeline(cfg) -> Pipeline:
     """Build the service pipeline from config. Without a `dev_source` the
     pipeline exists but has nothing to capture; with one it runs the real
@@ -138,5 +145,5 @@ def make_pipeline(cfg) -> Pipeline:
         source = RtspCvSource(src)
     else:
         source = FileSource(Path(src))
-    return Pipeline(source, Detector(cfg.models_dir / "yolo11n.onnx"),
+    return Pipeline(source, Detector(detector_path(cfg)),
                     Tracker(), cfg=cfg)

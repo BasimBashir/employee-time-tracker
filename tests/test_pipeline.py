@@ -49,3 +49,13 @@ def test_analysis_rate_capped_at_source_fps():
     # 10-frame source at 30 fps: must never exceed ~30 analyses per second of
     # wall clock, however fast the machine replays the source.
     assert pipe._frames_analysed <= 16
+
+
+def test_detector_path_prefers_promoted_active_model(tmp_path):
+    from types import SimpleNamespace
+    from service.pipeline import detector_path
+    cfg = SimpleNamespace(models_dir=tmp_path)
+    assert detector_path(cfg) == tmp_path / "yolo11n.onnx"       # stock fallback
+    (tmp_path / "active").mkdir()
+    (tmp_path / "active" / "detector.onnx").write_bytes(b"x")
+    assert detector_path(cfg) == tmp_path / "active" / "detector.onnx"
