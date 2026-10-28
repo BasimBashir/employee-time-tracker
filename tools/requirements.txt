@@ -1,0 +1,4 @@
+# tools/ requirements (training-only — do NOT install on the target machine)
+ultralytics
+torch
+onnx
