@@ -11,8 +11,8 @@
 ## Known risks carried forward
 1. GStreamer pipeline work is parked behind the cv2 bridge; `gst-plugins-ugly`/`libav`
    license terms were never verified. Confirm before any commercial distribution. (spec §15)
-2. Library versions were not pinned from upstream docs. Pin from current docs before
-   the first release build. (spec §15)
+2. ~~Library versions were not pinned~~ Done 2026-10-28: `requirements.txt` and
+   `tools/requirements.txt` pinned to the dev machine's validated versions.
 3. Face detection model choice in `service/faces.py` currently falls back to a
    person-crop heuristic. A dedicated face detector is needed for accuracy; the
    enrollment flow will still work but with worse crops.
@@ -39,3 +39,22 @@
 11. Deployment of a promoted model: copy `models/active/detector.onnx` (and its
     `.report.json`) to the target's `{data_root}/models/active/` — the service prefers
     it over the stock `yolo11n.onnx` at startup (service/pipeline.py `detector_path`).
+
+## Learned while building the first installer (2026-10-28)
+
+12. The full build ran end to end and produced `installer/dist/EmployeeTrackerSetup.exe`
+    (~205 MB). The frozen service exe booted in 3 s with a clean log (`/health` 200).
+13. `service/device.py` optionally imports torch for a CUDA probe; PyInstaller cannot
+    see the try/except, so the build needs `--exclude-module torch --exclude-module
+    torchvision` (302 MB → 111 MB exe). README's build command carries the flags.
+14. A onefile exe has no `service/schema.sql` beside `__file__`; the build must pass
+    `--add-data "service/schema.sql;service"` (also in README).
+15. Inno resolves `Source:` paths relative to the .iss directory, so the helper
+    scripts are `install-service.bat` / `register-autostart.ps1`, and the staged
+    payloads must live in `installer/dist/{service,tray,ui}`; the .iss also now
+    drops the stock `yolo11n.onnx` into `{commonappdata}` with
+    `onlyifdoesntexist` so upgrades never clobber a promoted model. The UI
+    staging robocopy needs the renderer copied separately (`/XD dist` skips it).
+16. Still manual: running `EmployeeTrackerSetup.exe` on a clean Windows 11 box
+    (risk 4), and the WhatsApp bridge is not packaged — the target needs Node
+    plus `whatsapp_bridge/` started via its own autostart script.

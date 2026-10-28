@@ -14,8 +14,10 @@ ArchitecturesInstallIn64BitMode=x64compatible
 Source: "dist\service\*"; DestDir: "{app}\service"; Flags: recursesubdirs
 Source: "dist\tray\*"; DestDir: "{app}\tray"; Flags: recursesubdirs
 Source: "dist\ui\*"; DestDir: "{app}\ui"; Flags: recursesubdirs
-Source: "installer\install-service.bat"; DestDir: "{app}\installer"
-Source: "installer\register-autostart.ps1"; DestDir: "{app}\installer"
+Source: "install-service.bat"; DestDir: "{app}\installer"
+Source: "register-autostart.ps1"; DestDir: "{app}\installer"
+; Stock detector for a fresh machine; never overwrite a promoted model on upgrade.
+Source: "..\yolo11n.onnx"; DestDir: "{commonappdata}\EmployeeTracker\models"; Flags: onlyifdoesntexist
 
 [Dirs]
 Name: "{commonappdata}\EmployeeTracker\clips"

@@ -1,5 +1,7 @@
 # tools/ requirements (training-only — do NOT install on the target machine)
-ultralytics
-torch
-onnx
-polars
+# Pinned to dev-machine versions (2026-10-28); torch there is 2.14.1+cpu from the
+# PyTorch index, PyPI resolves the equivalent CPU build for plain "2.14.1".
+ultralytics==8.4.71
+torch==2.14.1
+onnx==1.23.2
+polars==2.1.0

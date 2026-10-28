@@ -46,7 +46,7 @@ The dashboard also opens straight from the service at
 
 ```bash
 python -m pip install -r requirements.txt pyinstaller
-python -m PyInstaller --onefile --name service_main --paths . --collect-all uvicorn installer/service_main_entry.py
+python -m PyInstaller --onefile --name service_main --paths . --collect-all uvicorn --exclude-module torch --exclude-module torchvision --add-data "service/schema.sql;service" installer/service_main_entry.py
 python -m PyInstaller --onefile --name tray_app --paths . tray/tray_app.py
 ```
 
