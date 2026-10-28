@@ -27,6 +27,7 @@ from fastapi.staticfiles import StaticFiles
 from . import db as dbmod
 from . import namaz as namazmod
 from . import notifier as notifiermod
+from .config import DEFAULT_DATA_ROOT
 
 # Upload types: avatars are small images; training media may be video too.
 _IMAGE_TYPES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
@@ -446,6 +447,39 @@ def create_app(conn, cfg, ui_dir: Path | None = None) -> FastAPI:
         if pipe.source is not None:
             pipe.start()
         return {"restarted": True, **pipe.stats()}
+
+    # --- crossing zones and evidence clips (Phase 3) ------------------------
+    @app.get("/zones")
+    def get_zones(camera_id: int):
+        from dataclasses import asdict
+        from .zone import load_zones
+        return [asdict(z) for z in load_zones(conn, camera_id)]
+
+    @app.post("/zones")
+    def post_zone(body: dict = Body(...)):
+        from .zone import Zone, save_zone
+        if body.get("direction_out") not in ("POS_TO_NEG", "NEG_TO_POS"):
+            raise HTTPException(status_code=400, detail="direction_out must be POS_TO_NEG or NEG_TO_POS")
+        if not isinstance(body.get("line_points"), list) or len(body["line_points"]) < 2:
+            raise HTTPException(status_code=400, detail="line_points needs at least two points")
+        if conn.execute("SELECT 1 FROM cameras WHERE id=?", (body.get("camera_id"),)).fetchone() is None:
+            raise HTTPException(status_code=400, detail=f"unknown camera {body.get('camera_id')}")
+        z = Zone(None, int(body["camera_id"]),
+                 [(float(p[0]), float(p[1])) for p in body["line_points"]],
+                 body["direction_out"], bool(body.get("enabled", True)))
+        return {"id": save_zone(conn, z)}
+
+    @app.get("/clips")
+    def clips(date: str):
+        try:
+            datecls.fromisoformat(date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
+        root = cfg.clips_dir if cfg else (DEFAULT_DATA_ROOT / "clips")
+        day = root / date.replace("-", "/")
+        if not day.is_dir():
+            return []
+        return sorted(str(p) for p in day.rglob("*.mp4"))
 
     # --- dashboard ---------------------------------------------------------
     if ui_dir.is_dir():

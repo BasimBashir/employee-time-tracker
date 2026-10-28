@@ -61,6 +61,33 @@ def stop_pipeline(server) -> None:
         pipe.stop()
 
 
+def _nightly_loop(conn, cfg, stop: threading.Event) -> None:
+    """23:59 daily housekeeping: force-close sessions still open so a missing
+    return never becomes an infinite timer."""
+    from datetime import datetime
+    from .db import force_close_open_sessions, audit
+    fired_on = None
+    while not stop.is_set():
+        now = datetime.now()
+        if now.hour == 23 and now.minute >= 59 and fired_on != now.date().isoformat():
+            try:
+                n = force_close_open_sessions(conn, now.date().isoformat())
+                audit(conn, "system", "midnight_rollover", now.date().isoformat(),
+                      {"forced": n})
+                fired_on = now.date().isoformat()
+            except Exception:
+                log.exception("nightly rollover failed")
+        stop.wait(timeout=30)
+
+
+def start_nightly(conn, cfg) -> tuple[threading.Thread, threading.Event]:
+    stop = threading.Event()
+    t = threading.Thread(target=_nightly_loop, args=(conn, cfg, stop),
+                         name="nightly", daemon=False)
+    t.start()
+    return t, stop
+
+
 class TrackerService(win32serviceutil.ServiceFramework):
     _svc_name_ = "EmployeeTrackerService"
     _svc_display_name_ = "Employee Tracker Service"
@@ -71,6 +98,7 @@ class TrackerService(win32serviceutil.ServiceFramework):
         self.stop_event = win32event.CreateEvent(None, 0, 0, None)
         self.server = None
         self.watchdog = None
+        self.nightly_stop: threading.Event | None = None
         self._threads: list[threading.Thread] = []
 
     def SvcStop(self):
@@ -83,9 +111,11 @@ class TrackerService(win32serviceutil.ServiceFramework):
         cfg = load_config()
         self.server, self.watchdog = build_server(cfg)
         self.watchdog.start()
+        conn = self.server.config.app.state.conn
+        nightly_t, self.nightly_stop = start_nightly(conn, cfg)
         t = threading.Thread(target=self._serve, name="uvicorn", daemon=False)
         t.start()
-        self._threads = [self.watchdog.thread, t]
+        self._threads = [self.watchdog.thread, t, nightly_t]
         win32event.WaitForSingleObject(self.stop_event, win32event.INFINITE)
         self._shutdown()
 
@@ -98,6 +128,8 @@ class TrackerService(win32serviceutil.ServiceFramework):
         if self.server:
             stop_pipeline(self.server)
             self.server.should_exit = True
+        if self.nightly_stop:
+            self.nightly_stop.set()
         for t in self._threads:
             if t:
                 t.join(timeout=10)
@@ -116,9 +148,12 @@ def run_foreground(cfg=None) -> None:
     cfg = cfg or load_config()
     server, watchdog = build_server(cfg)
     watchdog.start()
+    nightly_t, nightly_stop = start_nightly(server.config.app.state.conn, cfg)
     try:
         asyncio.run(server.serve())
     finally:
+        nightly_stop.set()
+        nightly_t.join(timeout=5)
         stop_pipeline(server)
         server.should_exit = True
         watchdog.stop()
