@@ -267,6 +267,7 @@ def create_app(conn, cfg, ui_dir: Path | None = None) -> FastAPI:
                                              body.get("department"), role)
         except sqlite3.IntegrityError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
+        _invalidate()
         return _profile(employee_id)
 
     @app.delete("/employees/{employee_id}")
@@ -274,6 +275,7 @@ def create_app(conn, cfg, ui_dir: Path | None = None) -> FastAPI:
         _live_employee(employee_id)
         dbmod.deactivate_employee(conn, employee_id,
                                   body.get("actor", "?"), body.get("reason", ""))
+        _invalidate()
         return {"deleted": employee_id}
 
     @app.patch("/employees/{employee_id}")
@@ -513,6 +515,41 @@ def create_app(conn, cfg, ui_dir: Path | None = None) -> FastAPI:
     def resolver_invalidate():
         _invalidate()
         return {"ok": True}
+
+    @app.post("/enrollments")
+    def enroll(body: dict = Body(...)):
+        """Enroll an employee from a video file (no webcam required).
+        400 when the file yields no usable face — a rectangle must never
+        become a person."""
+        from .enrollment import EnrollmentSession, REQUIRED_POSES
+        from .faces import FaceEmbedder
+        from .framesource import FileSource
+        employee_id = int(body.get("employee_id", 0))
+        _live_employee(employee_id)
+        path = body.get("path")
+        if not path:
+            raise HTTPException(status_code=400, detail="path required")
+        try:
+            src = FileSource(Path(path))
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        model = (cfg.models_dir / "active" / "face.onnx") if cfg else Path("face.onnx")
+        es = EnrollmentSession(src, FaceEmbedder(model), None)
+        ok = 0
+        for _ in range(REQUIRED_POSES * 4):
+            if es.capture_pose():
+                ok += 1
+            if ok >= REQUIRED_POSES:
+                break
+        src.stop()
+        if ok < REQUIRED_POSES:
+            raise HTTPException(status_code=400,
+                                detail=f"only {ok}/{REQUIRED_POSES} poses captured")
+        dbmod.audit(conn, body.get("actor", "owner"), "enrollment_saved",
+                    str(employee_id), {"poses": ok})
+        enr = es.finish(conn, employee_id)
+        _invalidate()
+        return {"enrollment_id": enr, "poses": ok}
 
     # --- dashboard ---------------------------------------------------------
     if ui_dir and ui_dir.is_dir():
