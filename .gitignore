@@ -16,3 +16,8 @@ tests/fixtures/
 # yolo weights — exported per machine, never committed
 *.onnx
 *.pt
+
+# training footage — private, never committed
+datasets/*
+!datasets/.gitkeep
+!datasets/README.md
