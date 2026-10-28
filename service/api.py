@@ -669,11 +669,17 @@ def create_app(conn, cfg, ui_dir: Path | None = None) -> FastAPI:
 
     # --- report generation (Phase 5) ----------------------------------------
     # The service owns the filesystem and the DB; the UI only downloads.
-    reports_dir = (cfg.data_root / "reports") if cfg else (DEFAULT_DATA_ROOT / "reports")
-    reports_dir.mkdir(parents=True, exist_ok=True)
+    # Needs a real Config (a data root); tests that pass a bare stub or None
+    # simply have no report surface, like avatar uploads.
+    data_root = getattr(cfg, "data_root", None)
+    reports_dir = (Path(data_root) / "reports") if data_root is not None else None
+    if reports_dir is not None:
+        reports_dir.mkdir(parents=True, exist_ok=True)
 
     @app.post("/reports/daily", dependencies=[Depends(_require_auth)])
     def gen_daily(body: dict = Body(...)):
+        if reports_dir is None:
+            raise HTTPException(status_code=404, detail="no data root configured")
         from reports import write_daily_csv, write_daily_xlsx
         date = body.get("date") or ""
         try:
@@ -688,12 +694,14 @@ def create_app(conn, cfg, ui_dir: Path | None = None) -> FastAPI:
                 files.append(str(write_daily_xlsx(conn, date, reports_dir)))
             else:
                 raise HTTPException(status_code=400, detail=f"unknown format {fmt!r}")
-        dbmod.audit(conn, "owner", "report_generated", date, {"formats": files and [
-            Path(f).name for f in files]})
+        dbmod.audit(conn, "owner", "report_generated", date,
+                    {"formats": [Path(f).name for f in files]})
         return {"files": files}
 
     @app.post("/reports/monthly", dependencies=[Depends(_require_auth)])
     def gen_monthly(body: dict = Body(...)):
+        if reports_dir is None:
+            raise HTTPException(status_code=404, detail="no data root configured")
         from reports import write_monthly_pdf
         ym = body.get("year_month") or ""
         if not re.fullmatch(r"\d{4}-\d{2}", ym):
@@ -702,9 +710,10 @@ def create_app(conn, cfg, ui_dir: Path | None = None) -> FastAPI:
         dbmod.audit(conn, "owner", "report_generated", ym, {"file": Path(path).name})
         return {"file": str(path)}
 
-    # Mounted after the /reports/* POST routes so they keep their meanings;
-    # mounted before the UI catch-all at "/" for the same reason.
-    app.mount("/reports", StaticFiles(directory=str(reports_dir)), name="reports")
+    if reports_dir is not None:
+        # Mounted after the /reports/* POST routes so they keep their meanings;
+        # mounted before the UI catch-all at "/" for the same reason.
+        app.mount("/reports", StaticFiles(directory=str(reports_dir)), name="reports")
 
     # --- dashboard ---------------------------------------------------------
     if ui_dir and ui_dir.is_dir():
