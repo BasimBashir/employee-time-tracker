@@ -25,6 +25,7 @@ class Action:
     confidence: float = 0.0
     uncertain: int = 0
     inferred_return: bool = False
+    camera_id: Optional[int] = None
 
 
 class StateMachine:
@@ -72,10 +73,10 @@ class StateMachine:
             # already marked out: duplicate wobble or re-cross, never a new session
             return [Action("LOG_ONLY", c.employee_id, c.direction, c.occurred_at,
                            track_id=c.track_id, confidence=c.confidence,
-                           uncertain=c.uncertain)]
+                           uncertain=c.uncertain, camera_id=c.camera_id)]
         acts = [Action("OPEN_SESSION", c.employee_id, c.direction, c.occurred_at,
                        track_id=c.track_id, confidence=c.confidence,
-                       uncertain=c.uncertain)]
+                       uncertain=c.uncertain, camera_id=c.camera_id)]
         self.open_sessions[c.employee_id] = {
             "out_at": c.occurred_at, "out_track": c.track_id, "out_conf": c.confidence}
         return acts
@@ -85,7 +86,7 @@ class StateMachine:
         if open_sess is None:
             return [Action("LOG_ONLY", c.employee_id, c.direction, c.occurred_at,
                            track_id=c.track_id, confidence=c.confidence,
-                           uncertain=c.uncertain)]
+                           uncertain=c.uncertain, camera_id=c.camera_id)]
         del self.open_sessions[c.employee_id]
         return [Action("CLOSE_SESSION", c.employee_id, c.direction, c.occurred_at,
                        track_id=c.track_id, confidence=c.confidence,
