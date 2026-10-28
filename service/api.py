@@ -19,7 +19,7 @@ from datetime import date as datecls, datetime
 from pathlib import Path
 
 import psutil
-from fastapi import Body, FastAPI, HTTPException, Request
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -72,8 +72,50 @@ def create_app(conn, cfg, ui_dir: Path | None = None) -> FastAPI:
         CORSMiddleware,
         allow_origins=_CORS_ORIGINS,
         allow_methods=["GET", "DELETE", "PATCH", "POST"],
-        allow_headers=["Content-Type"],
+        allow_headers=["Content-Type", "X-Tracker-Password"],
     )
+
+    # --- local password gate (Phase 5) ---------------------------------------
+    # Mutating endpoints take this dependency; the UI sends the password in the
+    # X-Tracker-Password header. No password configured -> open (first run).
+    def _require_auth(x_tracker_password: str = Header(default="")):
+        from .password import PasswordGate
+        gate = PasswordGate(conn)
+        if not gate.is_set():
+            return
+        try:
+            gate.require(x_tracker_password)
+        except PermissionError:
+            dbmod.audit(conn, "unknown", "unauthorized_write", "", {})
+            raise HTTPException(status_code=401, detail="password required or incorrect")
+
+    @app.get("/auth/status")
+    def auth_status():
+        from .password import PasswordGate
+        return {"set": PasswordGate(conn).is_set()}
+
+    @app.post("/auth/set")
+    def auth_set(body: dict = Body(...)):
+        from .password import PasswordGate
+        gate = PasswordGate(conn)
+        if gate.is_set() and not gate.verify(body.get("current", "")):
+            dbmod.audit(conn, "unknown", "password_set_denied", "", {})
+            raise HTTPException(status_code=401, detail="current password incorrect")
+        pw = str(body.get("password") or "")
+        if len(pw) < 4:
+            raise HTTPException(status_code=400, detail="password must be at least 4 characters")
+        gate.set(pw)
+        dbmod.audit(conn, "owner", "password_set", "", {})
+        return {"ok": True}
+
+    @app.post("/auth/unlock")
+    def auth_unlock(body: dict = Body(...)):
+        from .password import PasswordGate
+        ok = PasswordGate(conn).verify(body.get("password", ""))
+        if not ok:
+            dbmod.audit(conn, "unknown", "unlock_failed", "", {})
+        return {"ok": ok}
+
 
     @app.get("/health")
     def health():
@@ -116,7 +158,7 @@ def create_app(conn, cfg, ui_dir: Path | None = None) -> FastAPI:
             out.append(d)
         return out
 
-    @app.delete("/sessions/{session_id}")
+    @app.delete("/sessions/{session_id}", dependencies=[Depends(_require_auth)])
     def del_session(session_id: int, body: dict = Body(...)):
         exists = conn.execute("SELECT 1 FROM sessions WHERE id=?",
                               (session_id,)).fetchone()
@@ -254,7 +296,7 @@ def create_app(conn, cfg, ui_dir: Path | None = None) -> FastAPI:
     def employees_list(date: str | None = None):
         return dbmod.list_employees(conn, windows_date=date)
 
-    @app.post("/employees")
+    @app.post("/employees", dependencies=[Depends(_require_auth)])
     def add_employee(body: dict = Body(...)):
         name = str(body.get("name") or "").strip()
         if not name:
@@ -270,7 +312,7 @@ def create_app(conn, cfg, ui_dir: Path | None = None) -> FastAPI:
         _invalidate()
         return _profile(employee_id)
 
-    @app.delete("/employees/{employee_id}")
+    @app.delete("/employees/{employee_id}", dependencies=[Depends(_require_auth)])
     def remove_employee(employee_id: int, body: dict = Body(...)):
         _live_employee(employee_id)
         dbmod.deactivate_employee(conn, employee_id,
@@ -278,7 +320,7 @@ def create_app(conn, cfg, ui_dir: Path | None = None) -> FastAPI:
         _invalidate()
         return {"deleted": employee_id}
 
-    @app.patch("/employees/{employee_id}")
+    @app.patch("/employees/{employee_id}", dependencies=[Depends(_require_auth)])
     def patch_employee(employee_id: int, body: dict = Body(...)):
         _live_employee(employee_id)
         picked = lambda key: (body[key] if key in body else dbmod.UNSET)
@@ -412,7 +454,7 @@ def create_app(conn, cfg, ui_dir: Path | None = None) -> FastAPI:
             raise HTTPException(status_code=404)
         return Response(png, media_type="image/png")
 
-    @app.patch("/sessions/{session_id}")
+    @app.patch("/sessions/{session_id}", dependencies=[Depends(_require_auth)])
     def patch_session(session_id: int, body: dict = Body(...)):
         if "purpose" not in body:
             raise HTTPException(status_code=400, detail="purpose is required")
@@ -459,7 +501,7 @@ def create_app(conn, cfg, ui_dir: Path | None = None) -> FastAPI:
         from .zone import load_zones
         return [asdict(z) for z in load_zones(conn, camera_id)]
 
-    @app.post("/zones")
+    @app.post("/zones", dependencies=[Depends(_require_auth)])
     def post_zone(body: dict = Body(...)):
         from .zone import Zone, save_zone
         if body.get("direction_out") not in ("POS_TO_NEG", "NEG_TO_POS"):
@@ -485,7 +527,7 @@ def create_app(conn, cfg, ui_dir: Path | None = None) -> FastAPI:
             return []
         return sorted(str(p) for p in day.rglob("*.mp4"))
 
-    @app.post("/retention/purge")
+    @app.post("/retention/purge", dependencies=[Depends(_require_auth)])
     def manual_purge(body: dict = Body(...)):
         from .retention import purge_clips_older_than, clear_clip_paths
         from .db import audit
@@ -516,7 +558,7 @@ def create_app(conn, cfg, ui_dir: Path | None = None) -> FastAPI:
         _invalidate()
         return {"ok": True}
 
-    @app.post("/enrollments")
+    @app.post("/enrollments", dependencies=[Depends(_require_auth)])
     def enroll(body: dict = Body(...)):
         """Enroll an employee from a video file (no webcam required).
         400 when the file yields no usable face — a rectangle must never
