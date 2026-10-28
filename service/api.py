@@ -12,8 +12,10 @@ import csv
 import io
 import itertools
 import os
+import queue
 import re
 import sqlite3
+import time
 import uuid
 from datetime import date as datecls, datetime
 from pathlib import Path
@@ -490,9 +492,58 @@ def create_app(conn, cfg, ui_dir: Path | None = None) -> FastAPI:
         pipe.stop()
         pipe = make_pipeline(cfg)
         app.state.pipeline = pipe
+        mjpeg = getattr(app.state, "mjpeg", None)
+        if mjpeg is not None:
+            mjpeg.attach(pipe)
         if pipe.source is not None:
             pipe.start()
         return {"restarted": True, **pipe.stats()}
+
+    # --- live camera feed (Phase 5) -----------------------------------------
+    @app.get("/camera/{camera_id}/stream.mjpeg")
+    def camera_stream(camera_id: int):
+        from fastapi.responses import StreamingResponse
+        server = getattr(app.state, "mjpeg", None)
+        boundary = b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
+
+        def gen():
+            if server is None:
+                # No analysis pipeline: a still placeholder keeps the live box
+                # showing something instead of a broken image.
+                import numpy as np
+                import cv2
+                ok, jpg = cv2.imencode(".jpg", np.zeros((270, 480, 3), np.uint8))
+                if ok:
+                    for _ in range(3):
+                        yield boundary + jpg.tobytes() + b"\r\n"
+                        time.sleep(0.3)
+                return
+            q = server.subscribe()
+            try:
+                while True:
+                    try:
+                        jpg = q.get(timeout=5)
+                    except queue.Empty:
+                        continue        # camera dark; keep the stream open
+                    yield boundary + jpg + b"\r\n"
+                    time.sleep(1.0 / server.max_fps)
+            finally:
+                server.unsubscribe(q)
+
+        return StreamingResponse(gen(),
+                                 media_type="multipart/x-mixed-replace; boundary=frame")
+
+    @app.get("/camera/{camera_id}/overlay.json")
+    def camera_overlay(camera_id: int):
+        from .zone import get_active_zone
+        z = get_active_zone(conn, camera_id)
+        if z is None:
+            return {"line": None, "direction_out": None}
+        # line_points live in the 960x540 analysis frame space; normalise so the
+        # renderer can draw over an <img> of any displayed size.
+        pts = [(p[0] / 960.0, p[1] / 540.0) for p in z.line_points]
+        return {"line": pts, "direction_out": z.direction_out,
+                "width": 960, "height": 540}
 
     # --- crossing zones and evidence clips (Phase 3) ------------------------
     @app.get("/zones")

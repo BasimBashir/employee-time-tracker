@@ -120,6 +120,11 @@ export const api = {
   weeklyReport: (end, days = 7) => get(`/report/weekly?end=${end}&days=${days}`),
   reportCsvUrl: (date) => `${API_BASE}/report/daily.csv?date=${date}`,
 
+  // Live camera: one MJPEG stream plus the normalized zone line for the
+  // overlay. Camera 1 is the only camera today.
+  cameraStreamUrl: () => `${API_BASE}/camera/1/stream.mjpeg`,
+  cameraOverlay: () => get('/camera/1/overlay.json'),
+
   // WhatsApp link state for the header chip: `{enabled: false}` when
   // notifications are off, otherwise `{enabled, reachable, bridge}`.
   notifyStatus: () => get('/notify/status'),

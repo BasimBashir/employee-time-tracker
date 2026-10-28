@@ -38,6 +38,13 @@ def build_server(cfg):
     from .pipeline import make_pipeline
     pipe = make_pipeline(cfg)
     app.state.pipeline = pipe
+
+    # Live camera feed (Phase 5): publish analysed frames to MJPEG viewers.
+    from .mjpeg import MjpegServer
+    mjpeg = MjpegServer(max_fps=6.0)
+    app.state.mjpeg = mjpeg
+    mjpeg.attach(pipe)
+
     if pipe.source is not None:
         pipe.start()
 
@@ -59,6 +66,9 @@ def stop_pipeline(server) -> None:
     pipe = getattr(app.state, "pipeline", None) if app is not None else None
     if pipe is not None:
         pipe.stop()
+    mjpeg = getattr(app.state, "mjpeg", None) if app is not None else None
+    if mjpeg is not None:
+        mjpeg.stop()
 
 
 def _nightly_loop(conn, cfg, stop: threading.Event) -> None:

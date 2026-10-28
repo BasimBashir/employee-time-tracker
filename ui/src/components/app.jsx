@@ -1,6 +1,7 @@
 import React from 'react';
 import Header from './Header.jsx';
 import SummaryStrip from './SummaryStrip.jsx';
+import CameraPanel from './CameraPanel.jsx';
 import CurrentlyOut from './CurrentlyOut.jsx';
 import LiveFeed from './LiveFeed.jsx';
 import SessionsTable from './SessionsTable.jsx';
@@ -91,7 +92,10 @@ export function App() {
           <>
             <SummaryStrip sessions={sessions} events={events} />
             <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
-              <LiveFeed events={events} />
+              <div className="flex min-w-0 flex-col gap-5">
+                <CameraPanel />
+                <LiveFeed events={events} />
+              </div>
               <CurrentlyOut sessions={sessions} />
             </div>
             <SessionsTable sessions={sessions} onChanged={reload} />
