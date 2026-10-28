@@ -138,9 +138,12 @@ def create_app(conn, cfg, ui_dir: Path | None = None) -> FastAPI:
     def sessions(date: str):
         rows = conn.execute(
             """SELECT s.*, e.name AS employee_name, e.out_windows,
-                      e.namaz_prayers, e.namaz_offset_min, e.namaz_duration_min
+                      e.namaz_prayers, e.namaz_offset_min, e.namaz_duration_min,
+                      eo.clip_path AS out_clip, ei.clip_path AS in_clip
                  FROM sessions s
                  JOIN employees e ON e.id = s.employee_id
+                 LEFT JOIN events eo ON eo.id = s.out_event_id
+                 LEFT JOIN events ei ON ei.id = s.in_event_id
                 WHERE s.date = ? AND s.deleted_at IS NULL ORDER BY s.id""",
             (date,)).fetchall()
         # Flag trips that started outside the employee's allowed windows —
@@ -577,6 +580,26 @@ def create_app(conn, cfg, ui_dir: Path | None = None) -> FastAPI:
         if not day.is_dir():
             return []
         return sorted(str(p) for p in day.rglob("*.mp4"))
+
+    def _clip_path(path: str) -> Path:
+        """Resolve a clip request against the clips dir; refuse everything else."""
+        root = (cfg.clips_dir if cfg else (DEFAULT_DATA_ROOT / "clips")).resolve()
+        target = Path(path).resolve()
+        if not str(target).startswith(str(root)):
+            raise HTTPException(status_code=400, detail="path outside clips dir")
+        return target
+
+    @app.get("/clips/probe")
+    def clips_probe(path: str):
+        from .cap import probe_clip
+        return probe_clip(_clip_path(path))
+
+    @app.get("/clips/download")
+    def clips_download(path: str):
+        target = _clip_path(path)
+        if not target.is_file():
+            raise HTTPException(status_code=404, detail="clip missing")
+        return FileResponse(str(target), media_type="video/mp4")
 
     @app.post("/retention/purge", dependencies=[Depends(_require_auth)])
     def manual_purge(body: dict = Body(...)):

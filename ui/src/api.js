@@ -7,41 +7,42 @@
 // whatever host the service is reached through.
 const API_BASE = import.meta.env.DEV ? 'http://127.0.0.1:8080' : '';
 
+// The local password gate: mutating endpoints demand X-Tracker-Password once
+// the operator has set one. Held in memory + sessionStorage for this session
+// only — never persisted anywhere else.
+let pw = sessionStorage.getItem('pw') || '';
+
 async function get(path) {
   const r = await fetch(`${API_BASE}${path}`);
   if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
   return r.json();
 }
 
-async function del(path, body) {
+// One mutating path for every verb: attaches the password, and on a 401 asks
+// for it once and retries before surfacing the failure.
+async function send(method, path, body, retry = true) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (pw) headers['X-Tracker-Password'] = pw;
   const r = await fetch(`${API_BASE}${path}`, {
-    method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' },
-    body: body ? JSON.stringify(body) : undefined,
+    method,
+    headers,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
   });
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+  if (r.status === 401 && retry) {
+    pw = window.prompt('This action needs the local password:') || '';
+    sessionStorage.setItem('pw', pw);
+    return send(method, path, body, false);
+  }
+  if (!r.ok) {
+    const detail = await r.json().catch(() => ({}));
+    throw new Error(detail.detail || `${r.status} ${r.statusText}`);
+  }
   return r.json();
 }
 
-async function patch(path, body) {
-  const r = await fetch(`${API_BASE}${path}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
-  return r.json();
-}
-
-async function post(path, body) {
-  const r = await fetch(`${API_BASE}${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
-  return r.json();
-}
+const del = (path, body) => send('DELETE', path, body);
+const patch = (path, body) => send('PATCH', path, body);
+const post = (path, body) => send('POST', path, body);
 
 // Uploads stream the raw file with its own content type — the service stores
 // media as plain files, so there is no JSON envelope.
@@ -84,19 +85,10 @@ export const api = {
   // Soft delete: the reason lands in the audit log; history stays resolvable.
   removeEmployee: (id, reason) => del(`/employees/${id}`, { actor: 'owner', reason }),
 
-  // Phase 4 identity: enroll from a video file the service can read. Unlike
-  // post(), surfaces the service's error detail (e.g. "only 3/10 poses
-  // captured") instead of just the status line.
-  enroll: async (employeeId, path) => {
-    const r = await fetch(`${API_BASE}/enrollments`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ employee_id: employeeId, path, source: 'file' }),
-    });
-    const body = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(body.detail || `${r.status} ${r.statusText}`);
-    return body;
-  },
+  // Phase 4 identity: enroll from a video file the service can read. The
+  // service's error detail (e.g. "only 3/10 poses captured") comes through.
+  enroll: (employeeId, path) =>
+    post('/enrollments', { employee_id: employeeId, path, source: 'file' }),
   // {ready, roster_size, confirm, uncertain} — the identity chip's data.
   resolverStatus: () => get('/resolver/status'),
 
@@ -124,6 +116,10 @@ export const api = {
   // overlay. Camera 1 is the only camera today.
   cameraStreamUrl: () => `${API_BASE}/camera/1/stream.mjpeg`,
   cameraOverlay: () => get('/camera/1/overlay.json'),
+
+  // Evidence clips: probe first (a clip may still be writing), then play.
+  clipProbeUrl: (path) => `${API_BASE}/clips/probe?path=${encodeURIComponent(path)}`,
+  clipDownloadUrl: (path) => `${API_BASE}/clips/download?path=${encodeURIComponent(path)}`,
 
   // WhatsApp link state for the header chip: `{enabled: false}` when
   // notifications are off, otherwise `{enabled, reachable, bridge}`.

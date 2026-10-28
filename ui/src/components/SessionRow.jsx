@@ -23,7 +23,7 @@ function ActionButton({ label, tone = 'ink', onClick }) {
   );
 }
 
-export function SessionRow({ session, onDelete, onTogglePurpose }) {
+export function SessionRow({ session, onDelete, onTogglePurpose, onPlayClip }) {
   const inferred = session.inferred_return === 1;
   const delivery = session.purpose === 'delivery';
   return (
@@ -71,6 +71,11 @@ export function SessionRow({ session, onDelete, onTogglePurpose }) {
         ) : (
           <span className="text-paper-faint">returned</span>
         )}
+      </td>
+      <td className="px-2">
+        {session.out_clip ? (
+          <ActionButton label="Clip" onClick={onPlayClip} />
+        ) : null}
       </td>
       <td className="py-2 pl-2 pr-3 text-right">
         <ActionButton label="Delete" tone="danger" onClick={onDelete} />
