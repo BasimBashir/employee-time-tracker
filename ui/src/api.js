@@ -112,6 +112,15 @@ export const api = {
   weeklyReport: (end, days = 7) => get(`/report/weekly?end=${end}&days=${days}`),
   reportCsvUrl: (date) => `${API_BASE}/report/daily.csv?date=${date}`,
 
+  // Generated reports (XLSX/PDF). The service writes into its reports folder;
+  // the returned path maps onto the /reports static mount for download.
+  genDaily: (date, formats) => post('/reports/daily', { date, formats }),
+  genMonthly: (yearMonth) => post('/reports/monthly', { year_month: yearMonth }),
+  reportFileUrl: (path) => {
+    const i = path.replace(/\\/g, '/').indexOf('/reports/');
+    return i < 0 ? path : `${API_BASE}${path.replace(/\\/g, '/').slice(i)}`;
+  },
+
   // Live camera: one MJPEG stream plus the normalized zone line for the
   // overlay. Camera 1 is the only camera today.
   cameraStreamUrl: () => `${API_BASE}/camera/1/stream.mjpeg`,

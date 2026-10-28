@@ -182,13 +182,40 @@ export function ReportsPanel({ report, date, onChanged }) {
     return m;
   }, [report]);
 
+  const [busy, setBusy] = React.useState(false);
+  const [month, setMonth] = React.useState(date.slice(0, 7));
+
+  // Generated files live behind the service's /reports mount; a synthetic
+  // click on a download anchor saves them without navigating away.
+  function download(url) {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = '';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  async function generate(fn, ...args) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const out = await fn(...args);
+      download(api.reportFileUrl(out.file ?? out.files[0]));
+    } catch (err) {
+      window.alert(`Could not generate the report: ${err.message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <section className="panel overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-ink-500/60 px-4 py-3">
         <h2 className="text-label font-medium uppercase tracking-widest text-paper-faint">
           Out-time report — {date}
         </h2>
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="flex items-center gap-1.5 text-xs text-paper-soft">
             <span className="h-2 w-2 rounded-full bg-rose" aria-hidden="true" />Break
           </span>
@@ -202,6 +229,30 @@ export function ReportsPanel({ report, date, onChanged }) {
           >
             Export CSV
           </a>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => generate(api.genDaily, date, ['xlsx'])}
+            className="rounded-md border border-ink-500/60 bg-ink-800 px-2.5 py-1 text-label text-paper transition-colors hover:bg-ink-700 disabled:opacity-50"
+          >
+            Export XLSX
+          </button>
+          <span className="mx-1 h-4 w-px bg-ink-500/60" aria-hidden="true" />
+          <input
+            type="month"
+            value={month}
+            onChange={(e) => setMonth(e.target.value)}
+            className="num rounded-md border border-ink-500/60 bg-ink-800 px-2 py-1 text-label text-paper"
+            aria-label="Month for the PDF summary"
+          />
+          <button
+            type="button"
+            disabled={busy || !/^\d{4}-\d{2}$/.test(month)}
+            onClick={() => generate(api.genMonthly, month)}
+            className="rounded-md border border-ink-500/60 bg-ink-800 px-2.5 py-1 text-label text-paper transition-colors hover:bg-ink-700 disabled:opacity-50"
+          >
+            Monthly PDF
+          </button>
         </div>
       </div>
       <div className="grid gap-4 p-4 md:grid-cols-2 xl:grid-cols-3">
