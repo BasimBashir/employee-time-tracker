@@ -46,7 +46,9 @@ The dashboard also opens straight from the service at
 
 ```bash
 python -m pip install -r requirements.txt pyinstaller
-python -m PyInstaller --onefile --name service_main --paths . --collect-all uvicorn --exclude-module torch --exclude-module torchvision --add-data "service/schema.sql;service" installer/service_main_entry.py
+# --onedir, not --onefile: a onefile service pays a full self-extract on every
+# SCM start and blows Windows' 30 s service-start budget on slow disks.
+python -m PyInstaller --onedir --name service_main --paths . --collect-all uvicorn --exclude-module torch --exclude-module torchvision --add-data "service/schema.sql;service" installer/service_main_entry.py
 python -m PyInstaller --onefile --name tray_app --paths . tray/tray_app.py
 ```
 
@@ -58,7 +60,9 @@ Manager launches the exe with no arguments; explicit arguments keep the CLI
 
 ```bash
 cd ui && npm install --legacy-peer-deps && npm run build
-robocopy . ..\dist\ui /E /XD dist node_modules\.cache   # stage the Electron shell
+node node_modules\electron\install.js                        # Electron runtime, if dist\ is missing
+robocopy . ..\installer\dist\ui /E /XD dist node_modules\.cache
+robocopy dist\renderer ..\installer\dist\ui\dist\renderer /E  # the /XD above skips the renderer too
 ```
 
 The staged `dist\ui` keeps `main.js`, `preload.js` and `node_modules` (which

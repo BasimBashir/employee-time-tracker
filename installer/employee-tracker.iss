@@ -31,10 +31,17 @@ Name: "{commonappdata}\EmployeeTracker\config"
 ; machines too.
 Name: "{commonappdata}\EmployeeTracker\bridge"; Permissions: users-modify
 
+[Icons]
+; Desktop + Start Menu: opens the dashboard window (Electron loads the
+; service-served UI at 127.0.0.1:8080, falling back to the local bundle).
+Name: "{commondesktop}\Employee Tracker"; Filename: "{app}\ui\node_modules\electron\dist\electron.exe"; Parameters: """{app}\ui"""; WorkingDir: "{app}\ui"
+Name: "{group}\Employee Tracker Dashboard"; Filename: "{app}\ui\node_modules\electron\dist\electron.exe"; Parameters: """{app}\ui"""; WorkingDir: "{app}\ui"
+
 [Run]
 Filename: "{app}\installer\install-service.bat"; Parameters: """{app}"""; Flags: runhidden
 Filename: "powershell"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\installer\register-autostart.ps1"""; Flags: runhidden
 Filename: "powershell"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{commonappdata}\EmployeeTracker\bridge\register-autostart.ps1"""; Flags: runhidden
+Filename: "{app}\tray\tray_app.exe"; Description: "Show the Employee Tracker tray icon now"; Flags: postinstall nowait skipifsilent
 
 [UninstallRun]
 Filename: "sc"; Parameters: "stop EmployeeTrackerService"; Flags: runhidden
