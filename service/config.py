@@ -17,6 +17,9 @@ class Config:
     port: int = 8080
     watchdog_rss_ceiling_mb: int = 1500
     clip_retention_days: int = 90
+    # Generated reports (CSV/XLSX/PDF) live longer than clips — the accountant
+    # may want last quarter's file, but not forever.
+    report_retention_days: int = 365
     disk_floor_gb: int = 10
     analysis_target_latency_ms: int = 120
     confirm_threshold: float = 0.45
@@ -93,6 +96,7 @@ class Config:
             "port": self.port,
             "watchdog_rss_ceiling_mb": self.watchdog_rss_ceiling_mb,
             "clip_retention_days": self.clip_retention_days,
+            "report_retention_days": self.report_retention_days,
             "disk_floor_gb": self.disk_floor_gb,
             "analysis_target_latency_ms": self.analysis_target_latency_ms,
             "confirm_threshold": self.confirm_threshold,

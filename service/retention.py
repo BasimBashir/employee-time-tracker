@@ -23,6 +23,25 @@ def purge_clips_older_than(clips_dir: Path, days: int, dry_run: bool = False) ->
     return hits
 
 
+def purge_reports_older_than(reports_dir: Path, days: int) -> list[Path]:
+    """Generated CSV/XLSX/PDF report files, same mtime rule as clips."""
+    cutoff = time.time() - days * 86400
+    hits = []
+    root = Path(reports_dir)
+    if not root.is_dir():
+        return hits
+    for p in root.rglob("*"):
+        if p.suffix.lower() not in (".csv", ".xlsx", ".pdf") or not p.is_file():
+            continue
+        try:
+            if p.stat().st_mtime < cutoff:
+                hits.append(p)
+                p.unlink()
+        except (FileNotFoundError, PermissionError):
+            continue
+    return hits
+
+
 def clear_clip_paths(conn: sqlite3.Connection, purged) -> int:
     n = 0
     for p in purged:
@@ -42,6 +61,8 @@ def disk_free_gb(path: Path) -> float:
 def nightly_retention(cfg, conn) -> dict:
     purged = purge_clips_older_than(cfg.clips_dir, cfg.clip_retention_days)
     cleared = clear_clip_paths(conn, purged)
+    reports = purge_reports_older_than(cfg.data_root / "reports",
+                                       cfg.report_retention_days)
     free = disk_free_gb(cfg.clips_dir)
     extra = []
     if 0 <= free < cfg.disk_floor_gb:
@@ -49,5 +70,6 @@ def nightly_retention(cfg, conn) -> dict:
         cleared += clear_clip_paths(conn, extra)
     audit(conn, "system", "nightly_retention", str(cfg.clip_retention_days),
           {"purged": len(purged), "cleared_paths": cleared, "free_gb": round(free, 2),
-           "early_purge": len(extra)})
-    return {"purged": len(purged), "cleared": cleared, "free_gb": round(free, 2)}
+           "early_purge": len(extra), "reports_purged": len(reports)})
+    return {"purged": len(purged), "cleared": cleared, "free_gb": round(free, 2),
+            "reports_purged": len(reports)}

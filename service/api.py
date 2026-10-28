@@ -593,6 +593,45 @@ def create_app(conn, cfg, ui_dir: Path | None = None) -> FastAPI:
         _invalidate()
         return {"enrollment_id": enr, "poses": ok}
 
+    # --- report generation (Phase 5) ----------------------------------------
+    # The service owns the filesystem and the DB; the UI only downloads.
+    reports_dir = (cfg.data_root / "reports") if cfg else (DEFAULT_DATA_ROOT / "reports")
+    reports_dir.mkdir(parents=True, exist_ok=True)
+
+    @app.post("/reports/daily", dependencies=[Depends(_require_auth)])
+    def gen_daily(body: dict = Body(...)):
+        from reports import write_daily_csv, write_daily_xlsx
+        date = body.get("date") or ""
+        try:
+            datecls.fromisoformat(date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
+        files = []
+        for fmt in body.get("formats") or ["csv"]:
+            if fmt == "csv":
+                files.append(str(write_daily_csv(conn, date, reports_dir)))
+            elif fmt == "xlsx":
+                files.append(str(write_daily_xlsx(conn, date, reports_dir)))
+            else:
+                raise HTTPException(status_code=400, detail=f"unknown format {fmt!r}")
+        dbmod.audit(conn, "owner", "report_generated", date, {"formats": files and [
+            Path(f).name for f in files]})
+        return {"files": files}
+
+    @app.post("/reports/monthly", dependencies=[Depends(_require_auth)])
+    def gen_monthly(body: dict = Body(...)):
+        from reports import write_monthly_pdf
+        ym = body.get("year_month") or ""
+        if not re.fullmatch(r"\d{4}-\d{2}", ym):
+            raise HTTPException(status_code=400, detail="year_month must be YYYY-MM")
+        path = write_monthly_pdf(conn, ym, reports_dir)
+        dbmod.audit(conn, "owner", "report_generated", ym, {"file": Path(path).name})
+        return {"file": str(path)}
+
+    # Mounted after the /reports/* POST routes so they keep their meanings;
+    # mounted before the UI catch-all at "/" for the same reason.
+    app.mount("/reports", StaticFiles(directory=str(reports_dir)), name="reports")
+
     # --- dashboard ---------------------------------------------------------
     if ui_dir and ui_dir.is_dir():
         # Mounted last so /health, /events and /sessions keep their meanings.
