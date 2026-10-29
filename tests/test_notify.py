@@ -113,11 +113,13 @@ def test_notify_status_endpoint(tmp_path):
     conn = make_conn(tmp_path)
     # cfg=None (and any cfg with notify_enabled off) reports plainly disabled.
     c = TestClient(create_app(conn, None))
-    assert c.get("/notify/status").json() == {"enabled": False}
+    body = c.get("/notify/status").json()
+    assert body["enabled"] is False and "reachable" not in body
+    assert body["owner_phone"] == "" and body["dev_source"] is None
     off = SimpleNamespace(notify_enabled=False, notify_bridge_url=DEAD_URL,
                           notify_bridge_key="")
     c = TestClient(create_app(conn, off))
-    assert c.get("/notify/status").json() == {"enabled": False}
+    assert c.get("/notify/status").json()["enabled"] is False
     # enabled but bridge unreachable: informational, still a 200.
     c = TestClient(create_app(conn, CFG))
     body = c.get("/notify/status").json()

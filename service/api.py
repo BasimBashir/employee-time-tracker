@@ -442,12 +442,88 @@ def create_app(conn, cfg, ui_dir: Path | None = None) -> FastAPI:
         _media_path(employee_id, name).unlink()
         return {"deleted": name}
 
+    def _dev_source():
+        # Real Configs keep dev_source in _extra (cfg.get); bare namespaces may
+        # carry it as an attribute.
+        if cfg is None:
+            return None
+        extra = getattr(cfg, "_extra", None)
+        if extra is not None:
+            return extra.get("dev_source")
+        return getattr(cfg, "dev_source", None)
+
     @app.get("/notify/status")
     def notify_status():
-        """WhatsApp bridge link state for the dashboard; never raises."""
+        """WhatsApp bridge link state + the operator settings the settings
+        panel edits; never raises."""
+        base = {
+            "owner_phone": getattr(cfg, "notify_owner_phone", "") if cfg else "",
+            "dev_source": _dev_source(),
+        }
         if cfg is None or not getattr(cfg, "notify_enabled", False):
-            return {"enabled": False}
-        return {"enabled": True, **notifiermod.bridge_status(cfg)}
+            return {"enabled": False, **base}
+        return {"enabled": True, **base, **notifiermod.bridge_status(cfg)}
+
+    @app.patch("/notify/settings", dependencies=[Depends(_require_auth)])
+    def patch_notify_settings(body: dict = Body(...)):
+        """Operator settings: notifications on/off, the owner's number, and the
+        camera RTSP URL (config `dev_source`). Saves config.json; a changed
+        dev_source needs /pipeline/restart, signalled back to the caller."""
+        if cfg is None:
+            raise HTTPException(status_code=400, detail="no config object")
+        restart = False
+        for key in ("notify_enabled", "notify_owner_phone", "dev_source"):
+            if key not in body:
+                continue
+            value = body[key]
+            if key == "notify_enabled":
+                value = bool(value)
+            elif value is not None:
+                value = str(value).strip() or None
+                if key == "notify_owner_phone" and \
+                        not re.fullmatch(r"\+?\d[\d\s-]{5,18}", value):
+                    raise HTTPException(status_code=400,
+                                        detail=f"not a phone number: {value!r}")
+                if key == "dev_source" and not value.startswith("rtsp://"):
+                    raise HTTPException(status_code=400,
+                                        detail="source must be an rtsp:// URL")
+            if key == "dev_source":
+                # _extra, not a dataclass field: load_config reads it back from
+                # there and save() persists **_extra verbatim.
+                extra = getattr(cfg, "_extra", None)
+                if extra is not None:
+                    extra["dev_source"] = value
+                else:
+                    setattr(cfg, key, value)
+                restart = True
+            else:
+                setattr(cfg, key, value)
+        if hasattr(cfg, "save"):
+            cfg.save()
+        dbmod.audit(conn, "dashboard", "patch_notify_settings", "config",
+                    {k: body[k] for k in body})
+        return {"ok": True, "restart_recommended": restart}
+
+    @app.post("/notify/test", dependencies=[Depends(_require_auth)])
+    def notify_test():
+        """One message to the owner's number — proves the whole chain:
+        service → bridge → WhatsApp → phone. Synchronous so the result is real."""
+        phone = getattr(cfg, "notify_owner_phone", "") if cfg else ""
+        if not phone:
+            raise HTTPException(status_code=400, detail="set the owner's number first")
+        try:
+            notifiermod.send_sync(cfg, phone, "✅ Employee Tracker test message.")
+        except Exception as exc:  # noqa: BLE001 — surfaced to the operator
+            raise HTTPException(status_code=502, detail=f"bridge: {exc}")
+        return {"sent": phone}
+
+    @app.post("/notify/inbound")
+    def notify_inbound(body: dict = Body(...)):
+        """The bridge forwards every incoming WhatsApp text here (localhost
+        only — the bridge cannot hold the dashboard password)."""
+        from . import polls
+        return polls.handle_inbound(conn, cfg, str(body.get("from", "")),
+                                    str(body.get("text", "")))
 
     @app.get("/notify/qr")
     def notify_qr():
@@ -458,6 +534,37 @@ def create_app(conn, cfg, ui_dir: Path | None = None) -> FastAPI:
         if png is None:
             raise HTTPException(status_code=404)
         return Response(png, media_type="image/png")
+
+    @app.post("/camera/test")
+    def camera_test(body: dict = Body(...)):
+        """'Test connection' for the RTSP URL: a TCP probe first (FFmpeg's own
+        connect timeout is tens of seconds), then open + grab one frame."""
+        url = str(body.get("url") or "").strip()
+        if not url.startswith("rtsp://"):
+            raise HTTPException(status_code=400, detail="enter an rtsp:// URL")
+        import socket
+        from urllib.parse import urlparse
+        u = urlparse(url)
+        try:
+            with socket.create_connection((u.hostname, u.port or 554), timeout=4.0):
+                pass
+        except OSError as exc:
+            return {"ok": False,
+                    "error": f"camera unreachable on {u.hostname}:{u.port or 554} ({exc})"}
+        os.environ.setdefault(
+            "OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp|timeout;4000000")
+        import cv2
+        cap = cv2.VideoCapture(url, cv2.CAP_FFMPEG)
+        try:
+            if not cap.isOpened():
+                return {"ok": False, "error": "TCP ok but FFmpeg could not start "
+                                              "the stream — check the URL path/password"}
+            ok, _ = cap.read()
+            if not ok:
+                return {"ok": False, "error": "stream opened but no frame arrived"}
+            return {"ok": True, "width": int(cap.get(3)), "height": int(cap.get(4))}
+        finally:
+            cap.release()
 
     @app.patch("/sessions/{session_id}", dependencies=[Depends(_require_auth)])
     def patch_session(session_id: int, body: dict = Body(...)):

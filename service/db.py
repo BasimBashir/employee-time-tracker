@@ -38,7 +38,8 @@ def migrate(conn: sqlite3.Connection) -> None:
         "namaz_offset_min": "INTEGER",
         "namaz_duration_min": "INTEGER",
     })
-    _add_columns(conn, "sessions", {"purpose": "TEXT NOT NULL DEFAULT 'break'"})
+    _add_columns(conn, "sessions", {"purpose": "TEXT NOT NULL DEFAULT 'break'",
+                                    "out_reason": "TEXT"})
     conn.commit()
 
 
@@ -379,6 +380,31 @@ def set_session_purpose(conn, session_id, purpose: str, actor: str) -> None:
     conn.execute("UPDATE sessions SET purpose=? WHERE id=?", (purpose, session_id))
     conn.commit()
     audit(conn, actor, "set_session_purpose", str(session_id), {"purpose": purpose})
+
+
+def record_poll_reply(conn, employee_id: int, reply: str, reason: str | None) -> None:
+    """Store an inbound WhatsApp answer on today's poll row (or a standalone
+    row when no poll was asked); a reason also lands on the open session so
+    the trip's record carries why they were out. Audited."""
+    today = datetime.now().date().isoformat()
+    row = conn.execute(
+        "SELECT id FROM poll_replies WHERE employee_id=? AND date=?"
+        " ORDER BY id DESC LIMIT 1", (employee_id, today)).fetchone()
+    if row is not None:
+        conn.execute("UPDATE poll_replies SET reply=?, reason=?, updated_at=? WHERE id=?",
+                     (reply, reason, _now(), row["id"]))
+    else:
+        conn.execute(
+            "INSERT INTO poll_replies (employee_id,date,prayer,reply,reason,updated_at)"
+            " VALUES (?,?,?,?,?,?)", (employee_id, today, "", reply, reason, _now()))
+    if reason:
+        conn.execute(
+            "UPDATE sessions SET out_reason=? WHERE id=(SELECT id FROM sessions"
+            " WHERE employee_id=? AND date=? AND in_at IS NULL AND deleted_at IS NULL"
+            " ORDER BY id DESC LIMIT 1)", (reason, employee_id, today))
+    conn.commit()
+    audit(conn, "whatsapp", "poll_reply", str(employee_id),
+          {"reply": reply, "reason": reason})
 
 
 def update_employee(conn, employee_id, role=None, allowed_out_minutes=UNSET,

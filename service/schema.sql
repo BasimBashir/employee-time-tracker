@@ -94,6 +94,20 @@ CREATE TABLE IF NOT EXISTS namaz_overrides (
   PRIMARY KEY (date, prayer)
 );
 
+-- WhatsApp prayer-poll asks and the employee's answer. One row per
+-- (date, prayer, employee): reply='asked' is the send-once guard, upgraded
+-- in place when the answer lands ('yes'/'no' + optional reason).
+CREATE TABLE IF NOT EXISTS poll_replies (
+  id INTEGER PRIMARY KEY,
+  employee_id INTEGER NOT NULL REFERENCES employees(id),
+  date TEXT NOT NULL,
+  prayer TEXT NOT NULL DEFAULT '',
+  reply TEXT NOT NULL DEFAULT 'asked',
+  reason TEXT,
+  updated_at TEXT NOT NULL,
+  UNIQUE (date, prayer, employee_id)
+);
+
 CREATE TABLE IF NOT EXISTS audit_log (
   id INTEGER PRIMARY KEY,
   actor TEXT,

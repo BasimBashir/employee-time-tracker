@@ -131,8 +131,17 @@ export const api = {
   clipDownloadUrl: (path) => `${API_BASE}/clips/download?path=${encodeURIComponent(path)}`,
 
   // WhatsApp link state for the header chip: `{enabled: false}` when
-  // notifications are off, otherwise `{enabled, reachable, bridge}`.
+  // notifications are off, otherwise `{enabled, reachable, bridge}` — plus
+  // owner_phone and dev_source for the settings panel.
   notifyStatus: () => get('/notify/status'),
+  // Operator settings: notifications on/off, owner number, camera RTSP URL.
+  patchNotifySettings: (body) => patch('/notify/settings', body),
+  // One message to the owner's number, synchronously — proves the chain.
+  notifyTest: () => post('/notify/test', {}),
+  // Restart the analysis pipeline (after changing the RTSP source).
+  pipelineRestart: () => post('/pipeline/restart', {}),
+  // 'Test connection': open the RTSP URL and grab one frame, server-side.
+  testCamera: (url) => post('/camera/test', { url }),
   // The pairing QR (PNG) is fetched by URL, not through get() — it's an image.
   notifyQrUrl: () => `${API_BASE}/notify/qr`,
 

@@ -76,14 +76,21 @@ async function connect() {
     })().catch(fail);
   });
   sock.ev.on('messages.upsert', ({ messages }) => {
-    // Replies land here. Notification-only today; the confirmation flow
-    // ("did you really go out? yes/no") reads this stream later.
+    // Every inbound text is forwarded to the service (prayer polls, audit).
+    // Fire-and-forget: a service hiccup must never disturb the WhatsApp
+    // session — replies are also still logged below for the console.
     for (const m of messages) {
       if (m.key.fromMe) continue;
       const text = m.message?.conversation
         || m.message?.extendedTextMessage?.text
         || m.message?.imageMessage?.caption;
-      if (text) console.log(`[in] ${m.key.remoteJid}: ${text}`);
+      if (!text) continue;
+      console.log(`[in] ${m.key.remoteJid}: ${text}`);
+      fetch(`${process.env.TRACKER_URL || 'http://127.0.0.1:8080'}/notify/inbound`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from: m.key.remoteJid, text }),
+      }).catch(() => {});
     }
   });
 }

@@ -33,6 +33,14 @@ export function SessionRow({ session, onDelete, onTogglePurpose, onPlayClip }) {
         {session.employee_name && (
           <span className="ml-2 text-paper-soft">{session.employee_name}</span>
         )}
+        {session.out_reason && (
+          <span
+            className="ml-2 text-[10px] tracking-normal text-paper-faint"
+            title="Reason from the employee's WhatsApp reply"
+          >
+            “{session.out_reason}”
+          </span>
+        )}
       </td>
       <td className="num px-2 text-paper-soft">
         {session.out_at ? new Date(session.out_at).toLocaleTimeString('en-GB') : '—'}

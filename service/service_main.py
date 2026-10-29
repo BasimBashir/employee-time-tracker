@@ -105,6 +105,29 @@ def start_nightly(conn, cfg) -> tuple[threading.Thread, threading.Event]:
     return t, stop
 
 
+def _whatsapp_loop(conn, cfg, stop: threading.Event) -> None:
+    """Prayer polls (each employee's namaz slots) + the Monday-15:00 weekly
+    summary. A failure here logs and retries; it must never kill the thread."""
+    from . import polls
+    fired_week = None
+    while not stop.is_set():
+        try:
+            if getattr(cfg, "notify_enabled", False):
+                polls.send_prayer_polls(conn, cfg)
+                fired_week = polls.maybe_weekly_report(conn, cfg, fired_week)
+        except Exception:
+            log.exception("whatsapp loop failed")
+        stop.wait(timeout=20)
+
+
+def start_whatsapp(conn, cfg) -> tuple[threading.Thread, threading.Event]:
+    stop = threading.Event()
+    t = threading.Thread(target=_whatsapp_loop, args=(conn, cfg, stop),
+                         name="whatsapp", daemon=False)
+    t.start()
+    return t, stop
+
+
 class TrackerService(win32serviceutil.ServiceFramework):
     _svc_name_ = "EmployeeTrackerService"
     _svc_display_name_ = "Employee Tracker Service"
@@ -116,6 +139,7 @@ class TrackerService(win32serviceutil.ServiceFramework):
         self.server = None
         self.watchdog = None
         self.nightly_stop: threading.Event | None = None
+        self.whatsapp_stop: threading.Event | None = None
         self._threads: list[threading.Thread] = []
 
     def SvcStop(self):
@@ -139,9 +163,10 @@ class TrackerService(win32serviceutil.ServiceFramework):
         self.watchdog.start()
         conn = self.server.config.app.state.conn
         nightly_t, self.nightly_stop = start_nightly(conn, cfg)
+        whatsapp_t, self.whatsapp_stop = start_whatsapp(conn, cfg)
         t = threading.Thread(target=self._serve, name="uvicorn", daemon=False)
         t.start()
-        self._threads = [self.watchdog.thread, t, nightly_t]
+        self._threads = [self.watchdog.thread, t, nightly_t, whatsapp_t]
         win32event.WaitForSingleObject(self.stop_event, win32event.INFINITE)
         self._shutdown()
 
@@ -156,6 +181,8 @@ class TrackerService(win32serviceutil.ServiceFramework):
             self.server.should_exit = True
         if self.nightly_stop:
             self.nightly_stop.set()
+        if self.whatsapp_stop:
+            self.whatsapp_stop.set()
         for t in self._threads:
             if t:
                 t.join(timeout=10)
@@ -175,11 +202,14 @@ def run_foreground(cfg=None) -> None:
     server, watchdog = build_server(cfg)
     watchdog.start()
     nightly_t, nightly_stop = start_nightly(server.config.app.state.conn, cfg)
+    whatsapp_t, whatsapp_stop = start_whatsapp(server.config.app.state.conn, cfg)
     try:
         asyncio.run(server.serve())
     finally:
         nightly_stop.set()
         nightly_t.join(timeout=5)
+        whatsapp_stop.set()
+        whatsapp_t.join(timeout=5)
         stop_pipeline(server)
         server.should_exit = True
         watchdog.stop()
