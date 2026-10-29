@@ -56,5 +56,12 @@
     `onlyifdoesntexist` so upgrades never clobber a promoted model. The UI
     staging robocopy needs the renderer copied separately (`/XD dist` skips it).
 16. Still manual: running `EmployeeTrackerSetup.exe` on a clean Windows 11 box
-    (risk 4), and the WhatsApp bridge is not packaged — the target needs Node
-    plus `whatsapp_bridge/` started via its own autostart script.
+    (risk 4). The WhatsApp bridge is bundled with portable node.exe since
+    2026-10-29; no Node install is needed on the target.
+17. A frozen service under SCM runs with **no console**: `sys.stdout`/`stderr`
+    are `None`. uvicorn's default log formatter calls `sys.stdout.isatty()` in
+    its dictConfig, so `uvicorn.Config(...)` without `log_config=None` killed
+    SvcDoRun ("Unable to configure formatter 'default'") — invisible in
+    foreground `debug`, which is why every local smoke test passed. Repro any
+    console-less bug locally with `exe debug 0<&- 1>&- 2>&-` (all std handles
+    closed) + curl /health.

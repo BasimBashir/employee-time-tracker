@@ -48,7 +48,12 @@ def build_server(cfg):
     if pipe.source is not None:
         pipe.start()
 
-    config = uvicorn.Config(app, host="127.0.0.1", port=cfg.port, log_level="warning")
+    # log_config=None: uvicorn's default formatter calls sys.stdout.isatty(),
+    # and a service process has no console (stdout is None) — dictConfig raised
+    # "Unable to configure formatter 'default'" and killed SvcDoRun. Our JSON
+    # logging via service_logger is the only config the API needs.
+    config = uvicorn.Config(app, host="127.0.0.1", port=cfg.port,
+                            log_level="warning", log_config=None)
     server = uvicorn.Server(config)
 
     def request_restart():
@@ -118,6 +123,15 @@ class TrackerService(win32serviceutil.ServiceFramework):
         win32event.SetEvent(self.stop_event)
 
     def SvcDoRun(self):
+        try:
+            self._run()
+        except Exception:
+            # pywin32 only reports this to the event log; service.log must hold
+            # the traceback too, or a dead service looks undiagnosable.
+            log.exception("service crashed in SvcDoRun")
+            raise
+
+    def _run(self):
         servicemanager.LogMsg(servicemanager.EVENTLOG_INFORMATION_TYPE,
                               servicemanager.PYS_SERVICE_STARTED, (self._svc_name_, ""))
         cfg = load_config()
