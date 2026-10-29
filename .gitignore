@@ -29,3 +29,7 @@ runs/
 build_*.log
 *_live.log
 /*.spec
+
+# working notes — not part of the product
+.claude/
+docs/superpowers/
