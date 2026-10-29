@@ -78,11 +78,22 @@ def send_prayer_polls(conn, cfg, now: datetime | None = None) -> int:
                 continue
             conn.commit()
             hhmm = f"{start // 60:02d}:{start % 60:02d}"
-            notifier.send(
-                cfg, emp["phone"],
-                f"🕌 {emp['name']}, {_PRAYER_LABEL.get(prayer, prayer)} jamaat at "
-                f"{hhmm}. Are you going? Reply YES or NO — if NO, please add why "
-                f"(e.g. \"no - doctor\").")
+            try:
+                # Synchronous here (the loop thread can wait): the ask row only
+                # sticks when the bridge took the message, so a down/unlinked
+                # bridge retries next tick instead of silently eating the poll.
+                notifier.send_sync(
+                    cfg, emp["phone"],
+                    f"🕌 {emp['name']}, {_PRAYER_LABEL.get(prayer, prayer)} jamaat at "
+                    f"{hhmm}. Are you going? Reply YES or NO — if NO, please add why "
+                    f"(e.g. \"no - doctor\").")
+            except Exception as exc:  # noqa: BLE001 — retried on the next tick
+                log.warning("poll to %s failed, will retry: %s", emp["phone"], exc)
+                conn.execute(
+                    "DELETE FROM poll_replies WHERE employee_id=? AND date=? AND prayer=?",
+                    (emp["employee_id"], today, prayer))
+                conn.commit()
+                continue
             asked += 1
     return asked
 

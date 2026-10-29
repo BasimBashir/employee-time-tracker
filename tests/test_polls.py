@@ -42,7 +42,7 @@ def test_send_prayer_polls_asks_once_per_day(tmp_path, monkeypatch):
     update_employee(conn, emp, phone="+92 301 7144499", namaz_prayers="zuhr")
     set_namaz_override(conn, "2026-10-29", "zuhr", 13 * 60)  # 13:00
     captured = []
-    monkeypatch.setattr(notifier, "send",
+    monkeypatch.setattr(notifier, "send_sync",
                         lambda cfg, phone, text: captured.append((phone, text)))
     cfg = SimpleNamespace(notify_enabled=True, notify_bridge_url=DEAD_URL,
                           notify_bridge_key="")
@@ -56,11 +56,17 @@ def test_send_prayer_polls_asks_once_per_day(tmp_path, monkeypatch):
     assert polls.send_prayer_polls(conn, cfg, datetime(2026, 10, 29, 12, 0)) == 0
     assert polls.send_prayer_polls(conn, cfg, now) == 0
     assert len(captured) == 1
-    # no number → never asked
-    update_employee(conn, emp, phone=None)
+    # a failed send un-marks the ask, so the next tick retries it
+    def boom(cfg, phone, text):
+        raise OSError("bridge down")
+    monkeypatch.setattr(notifier, "send_sync", boom)
     set_namaz_override(conn, "2026-10-29", "asr", 13 * 60)
-    update_employee(conn, emp, phone="+923017144499", namaz_prayers="zuhr,asr")
-    assert polls.send_prayer_polls(conn, cfg, now) == 1  # asr only
+    update_employee(conn, emp, namaz_prayers="zuhr,asr")
+    assert polls.send_prayer_polls(conn, cfg, now) == 0
+    monkeypatch.setattr(notifier, "send_sync",
+                        lambda cfg, phone, text: captured.append((phone, text)))
+    assert polls.send_prayer_polls(conn, cfg, now) == 1  # asr, retried
+    assert len(captured) == 2
 
 
 # ----------------------------------------------------------- inbound -----
