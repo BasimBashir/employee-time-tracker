@@ -1,6 +1,9 @@
 [Setup]
 AppName=Employee Tracker
 AppVersion=0.1.0
+; The "which app to close" prompt would name our own bundled bridge node.exe;
+; closing it silently is safe (the Run key restarts it at next logon).
+CloseApplications=force
 DefaultDirName={autopf}\EmployeeTracker
 DefaultGroupName=Employee Tracker
 OutputDir=dist

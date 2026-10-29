@@ -36,12 +36,17 @@ def service_logger(name: str, log_dir: Path | None = None) -> logging.Logger:
     if log_dir is None:
         log_dir = DEFAULT_LOG_DIR
     log_dir = Path(log_dir)
-    log_dir.mkdir(parents=True, exist_ok=True)
-    file_handler = logging.handlers.RotatingFileHandler(
-        log_dir / "service.log", maxBytes=ROTATE_BYTES, backupCount=BACKUP_COUNT,
-        encoding="utf-8")
-    file_handler.setFormatter(JsonFormatter())
-    log.addHandler(file_handler)
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+        file_handler = logging.handlers.RotatingFileHandler(
+            log_dir / "service.log", maxBytes=ROTATE_BYTES, backupCount=BACKUP_COUNT,
+            encoding="utf-8")
+        file_handler.setFormatter(JsonFormatter())
+        log.addHandler(file_handler)
+    except OSError:
+        # An unwritable log (bad ACL from an earlier elevated run, redirected
+        # profile...) must never stop the service; console logging survives.
+        pass
 
     stream = logging.StreamHandler()
     stream.setFormatter(JsonFormatter())
