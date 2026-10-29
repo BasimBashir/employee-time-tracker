@@ -21,6 +21,16 @@ export function WhatsAppPanel() {
     return () => clearInterval(id);
   }, [load]);
 
+  // WhatsApp rotates the pairing QR every ~20s — re-fetch the image or the
+  // user scans a dead code and gets "Couldn't link device" on the phone.
+  const [qrTick, setQrTick] = React.useState(0);
+  React.useEffect(() => {
+    if (st?.bridge?.status !== 'qr') return;
+    setQrTick((t) => t + 1);
+    const id = setInterval(() => setQrTick((t) => t + 1), 15000);
+    return () => clearInterval(id);
+  }, [st?.bridge?.status]);
+
   // Adopt the saved RTSP URL into the input once; afterwards typing stays free.
   const savedSource = React.useRef(null);
   React.useEffect(() => {
@@ -116,7 +126,7 @@ export function WhatsAppPanel() {
           <p className="text-xs text-paper-soft">{linkState}</p>
           {st?.enabled && bridge?.status === 'qr' && (
             <img
-              src={api.notifyQrUrl()}
+              src={`${api.notifyQrUrl()}?t=${qrTick}`}
               alt="WhatsApp pairing QR"
               className="w-48 rounded-md border border-ink-500/60 bg-white p-1"
             />
