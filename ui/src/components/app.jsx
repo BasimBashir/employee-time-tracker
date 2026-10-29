@@ -8,6 +8,7 @@ import SessionsTable from './SessionsTable.jsx';
 import ReportsPanel from './ReportsPanel.jsx';
 import EmployeesPanel from './EmployeesPanel.jsx';
 import NamazPanel from './NamazPanel.jsx';
+import WhatsAppPanel from './WhatsAppPanel.jsx';
 import { api } from '../api.js';
 
 // Three pages, switched client-side: the live Dashboard, the Employees
@@ -105,7 +106,12 @@ export function App() {
         {page === 'employees' && (
           <EmployeesPanel employees={employees} onChanged={reload} />
         )}
-        {page === 'settings' && <NamazPanel date={date} />}
+        {page === 'settings' && (
+          <>
+            <NamazPanel date={date} />
+            <WhatsAppPanel />
+          </>
+        )}
       </main>
     </div>
   );

@@ -24,3 +24,8 @@ datasets/*
 
 # training run output (weights, curves) — regenerable
 runs/
+
+# local build/run logs and PyInstaller specs (regenerated per machine)
+build_*.log
+*_live.log
+/*.spec
